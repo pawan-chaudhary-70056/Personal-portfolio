@@ -1,0 +1,82 @@
+/*
+ * Design tokens for the Luxury Personal Portfolio.
+ * Source of truth: docs/03-design-system.md and docs/04-animation-guidelines.md
+ *
+ * Contrast notes (WCAG 2.2 AA, verified with the relative-luminance formula):
+ *   #C6AA78 on #111110 = 8.48:1  -> safe for text, borders, and focus rings on dark surfaces
+ *   #C6AA78 on #F4F0E8 = 1.96:1  -> NOT safe for text or focus rings on light surfaces
+ *   #7A6434 on #F4F0E8 = 4.99:1  -> use --color-gold-ink for any gold on light surfaces
+ *
+ * Rule: never place --color-gold text on an ivory surface. Use --color-gold-ink there.
+ */
+@theme {
+  /* Brand */
+  --color-charcoal: #111110;
+  --color-charcoal-900: #1b1b19;
+  --color-charcoal-800: #292925;
+  --color-charcoal-700: #45443f;
+  --color-ivory: #f4f0e8;
+  --color-ivory-200: #e5dfd4;
+  --color-ivory-300: #d5cfc4;
+  --color-gold: #c6aa78;
+  --color-gold-ink: #7a6434;
+
+  /* Secondary text. Opacity-based greys (ivory/40 etc.) fail AA, so these
+     are explicit colors: 6.5:1 on charcoal, 5.9:1 on ivory. */
+  --color-muted-dark: #9c968d;
+  --color-muted-light: #5f5b54;
+
+  /* Semantic (used by forms/dashboard later) */
+  --color-success: #287a52;
+  /* Darker success for text on light surfaces (5.7:1 against tinted ivory). */
+  --color-success-ink: #1f6642;
+  --color-warning: #94651c;
+  --color-error: #b42318;
+  --color-info: #245ea8;
+
+  /* Typography */
+  --font-serif: 'DM Serif Display', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inter Variable', Inter, Arial, sans-serif;
+
+  --text-display: clamp(2.75rem, 7vw, 6.5rem);
+  --text-display--line-height: 0.98;
+  --text-display--letter-spacing: -0.02em;
+
+  --text-h1: clamp(2.25rem, 5vw, 4rem);
+  --text-h1--line-height: 1.04;
+  --text-h1--letter-spacing: -0.015em;
+
+  --text-h2: clamp(1.875rem, 3.5vw, 3rem);
+  --text-h2--line-height: 1.12;
+  --text-h2--letter-spacing: -0.01em;
+
+  --text-h3: clamp(1.375rem, 2vw, 1.75rem);
+  --text-h3--line-height: 1.25;
+
+  --text-h4: clamp(1.0625rem, 1.2vw, 1.25rem);
+  --text-h4--line-height: 1.4;
+
+  --text-body-lg: 1.125rem;
+  --text-body-lg--line-height: 1.65;
+
+  --text-body: 1rem;
+  --text-body--line-height: 1.65;
+
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.6;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--letter-spacing: 0.08em;
+
+  /* Layout */
+  --container-reading: 45rem; /* 720px */
+  --container-content: 70rem; /* 1120px */
+  --container-wide: 80rem; /* 1280px */
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+}

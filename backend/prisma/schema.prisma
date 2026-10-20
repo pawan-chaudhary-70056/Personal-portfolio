@@ -1,0 +1,124 @@
+// Database schema — see docs/08-database-schema.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Server-side session storage used by connect-pg-simple.
+/// Modelled here so migrations own the table instead of the store creating it.
+/// Column names and types must match connect-pg-simple's queries exactly.
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire])
+  @@map("session")
+}
+
+enum ProjectStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// The portfolio owner. There is no public registration: accounts are created
+/// with `npm run create-admin`.
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique @db.VarChar(254)
+  name         String   @db.VarChar(120)
+  passwordHash String   @db.Text
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  auditEvents AuditEvent[]
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  title         String        @db.VarChar(120)
+  slug          String        @unique @db.VarChar(160)
+  summary       String        @db.VarChar(300)
+  description   String        @db.Text  @default("")
+  category      String        @db.VarChar(60) @default("Full-stack")
+  year          String        @db.VarChar(9)
+  technologies  String[]      @default([])
+  liveUrl       String?       @db.VarChar(2048)
+  repositoryUrl String?       @db.VarChar(2048)
+  imageUrl      String?       @db.VarChar(2048)
+  imageAlt      String?       @db.VarChar(200)
+
+  status      ProjectStatus @default(DRAFT)
+  featured    Boolean       @default(false)
+  sortOrder   Int           @default(0)
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, featured, sortOrder])
+  @@index([updatedAt])
+}
+
+/// A technical capability shown in the portfolio, grouped by category.
+/// `published` adds the visibility control required by the public-content rules.
+model Skill {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(60)
+  category    String   @db.VarChar(60)
+  description String?  @db.VarChar(300)
+  sortOrder   Int      @default(0)
+  published   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([category, name])
+  @@index([published, category, sortOrder])
+}
+
+/// Work experience. Dates are date-only, per docs/08-database-schema.md §5.7.
+model Experience {
+  id             String    @id @default(cuid())
+  role           String    @db.VarChar(120)
+  organization   String    @db.VarChar(120)
+  employmentType String?   @db.VarChar(40)
+  location       String?   @db.VarChar(120)
+  description    String?   @db.Text
+  startDate      DateTime  @db.Date
+  endDate        DateTime? @db.Date
+  isCurrent      Boolean   @default(false)
+  published      Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([published, sortOrder])
+  @@index([startDate])
+}
+
+/// Append-only record of security-relevant administrative actions.
+model AuditEvent {
+  id         String   @id @default(cuid())
+  adminId    String?
+  action     String   @db.VarChar(60)
+  entityType String   @db.VarChar(40)
+  entityId   String?  @db.VarChar(64)
+  metadata   Json?
+  ipAddress  String?  @db.VarChar(45)
+  userAgent  String?  @db.VarChar(300)
+  createdAt  DateTime @default(now())
+
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}

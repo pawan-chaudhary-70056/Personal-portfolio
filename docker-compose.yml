@@ -1,0 +1,26 @@
+# Local development database.
+# Production should use a managed PostgreSQL instance, not this file.
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: portfolio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: portfolio_dev_password
+      POSTGRES_DB: portfolio_dev
+    ports:
+      # 5433 avoids clashing with a PostgreSQL server already bound to 5432.
+      - '127.0.0.1:5433:5432'
+    volumes:
+      # PostgreSQL 18+ keeps versioned data under /var/lib/postgresql.
+      - portfolio-db-data:/var/lib/postgresql
+      - ./backend/prisma/init-databases.sql:/docker-entrypoint-initdb.d/10-init-databases.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U portfolio -d portfolio_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  portfolio-db-data:

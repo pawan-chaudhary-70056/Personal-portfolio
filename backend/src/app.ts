@@ -1,0 +1,104 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import connectPgSimple from 'connect-pg-simple'
+import cookieParser from 'cookie-parser'
+import cors from 'cors'
+import express, { type Express } from 'express'
+import session from 'express-session'
+import helmet from 'helmet'
+import { env } from './config/env.js'
+import { IDLE_SESSION_MS } from './lib/auth-types.js'
+import { errorHandler, notFoundHandler } from './lib/errors.js'
+import { verifyCsrf } from './middleware/csrf.js'
+import { createAdminRouter } from './routes/admin/index.js'
+import { createAuthRouter } from './routes/auth.routes.js'
+import { createPublicContentRouter } from './routes/public/content.routes.js'
+import { createPublicProjectsRouter } from './routes/public/projects.routes.js'
+
+export interface CreateAppOptions {
+  /** Test-only override for the login rate limit. */
+  loginRateLimitMax?: number
+}
+
+export function createApp(options: CreateAppOptions = {}): Express {
+  const app = express()
+
+  app.disable('x-powered-by')
+
+  if (env.TRUST_PROXY) {
+    app.set('trust proxy', 1)
+  }
+
+  app.use(helmet())
+  app.use(express.json({ limit: '100kb' }))
+  app.use(cookieParser())
+
+  // Credentialed CORS is only needed if the frontend is served from another
+  // origin. The default deployment keeps the API and SPA on one origin.
+  if (env.FRONTEND_ORIGIN) {
+    app.use(cors({ origin: env.FRONTEND_ORIGIN, credentials: true }))
+  }
+
+  const PgSessionStore = connectPgSimple(session)
+
+  app.use(
+    session({
+      name: env.SESSION_COOKIE_NAME,
+      secret: env.SESSION_SECRET,
+      store: new PgSessionStore({
+        conString: env.DATABASE_URL,
+        tableName: 'session',
+        // The table is owned by Prisma migrations (see prisma/schema.prisma).
+        createTableIfMissing: false,
+        pruneSessionInterval: 60 * 15,
+      }),
+      resave: false,
+      saveUninitialized: false,
+      rolling: true,
+      cookie: {
+        httpOnly: true,
+        secure: env.isProduction,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: IDLE_SESSION_MS,
+      },
+    }),
+  )
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok' })
+  })
+
+  // Applies to every state-changing request under /api.
+  app.use('/api', verifyCsrf)
+
+  app.use(
+    '/api/auth',
+    createAuthRouter({ loginRateLimitMax: options.loginRateLimitMax ?? env.LOGIN_RATE_LIMIT_MAX }),
+  )
+  app.use('/api/admin', createAdminRouter())
+  app.use('/api/projects', createPublicProjectsRouter())
+  app.use('/api', createPublicContentRouter())
+
+  // Single-origin deployment: serve the built SPA when it is available.
+  if (env.isProduction) {
+    const frontendDist = path.resolve(process.cwd(), '../frontend/dist')
+    const indexHtml = path.join(frontendDist, 'index.html')
+
+    if (existsSync(indexHtml)) {
+      app.use(express.static(frontendDist, { index: false }))
+      app.use((req, res, next) => {
+        if (req.method !== 'GET' || req.path.startsWith('/api')) {
+          next()
+          return
+        }
+        res.sendFile(indexHtml)
+      })
+    }
+  }
+
+  app.use(notFoundHandler)
+  app.use(errorHandler)
+
+  return app
+}
