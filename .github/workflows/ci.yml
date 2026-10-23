@@ -149,11 +149,24 @@ jobs:
       - name: Start the dev server
         working-directory: frontend
         run: |
-          nohup npm run dev > /tmp/vite.log 2>&1 &
+          npm run dev -- --host 127.0.0.1 --port 5173 --strictPort > /tmp/vite.log 2>&1 &
+          echo $! > /tmp/vite.pid
+
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:5173/ > /dev/null; then exit 0; fi
+            if curl -fsS http://127.0.0.1:5173/ > /dev/null; then
+              echo "Vite server is healthy"
+              exit 0
+            fi
+
+            if ! kill -0 "$(cat /tmp/vite.pid)" 2>/dev/null; then
+              echo "Vite process exited unexpectedly"
+              cat /tmp/vite.log
+              exit 1
+            fi
+
             sleep 1
           done
+
           echo "Vite dev server did not become healthy"
           cat /tmp/vite.log
           exit 1
