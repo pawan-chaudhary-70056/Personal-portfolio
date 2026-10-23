@@ -73,7 +73,13 @@ Every public page is backend-driven: publish or hide records in the admin dashbo
 
 ## Verification
 
-Both scripts drive a real browser:
+Both scripts drive a real browser. With the API and dev server running:
+
+```bash
+npm run verify    # runs homepage (vite preview) then admin, managing the preview server
+```
+
+Or individually:
 
 ```bash
 npm run build
@@ -85,6 +91,8 @@ cd ../backend && npm run dev                       # terminal 1
 npm run dev                                        # terminal 2
 npm run verify:admin
 ```
+
+Both verifiers are non-destructive: `verify:admin` restores the homepage portrait and draft layout it finds, restores site settings and the profile it edits, and purges the fixtures it trashes (plus leftovers from an interrupted earlier run), so a developer database comes out unchanged.
 
 `verify:homepage` covers rendering, fonts, entrance and scroll animations, reduced motion, mobile navigation, the 404 route, layout overflow, axe WCAG A/AA, and every public route: heading, current-page indicator, project listing parity with the API, project detail navigation, related projects, the screenshot gallery and its card cover fallback, unknown project slugs, deep links to in-page sections, and the contact form's field-level validation.
 

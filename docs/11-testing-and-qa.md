@@ -789,12 +789,13 @@ The actual CI configuration is the source of truth for which checks currently ru
 | Job | Steps |
 |---|---|
 | Backend | `npm ci` → `prisma generate` → `tsc --noEmit` (source and tests) → `vitest run` → `tsc` build |
-| Frontend | `npm ci` → `oxlint` → `tsc -b && vite build` |
+| Frontend | `npm ci` → `oxlint` → `vitest run` (unit tests) → `tsc -b && vite build` |
+| End-to-end | PostgreSQL service → migrations → `create-admin` → API and dev server → `npm run build` → `npm run verify` (both Playwright verifiers) |
 | Containers | `docker build` for `backend/` and `frontend/` |
 
 The backend job starts a `postgres:18-alpine` service on port `5433` with the credentials in `backend/tests/config.ts`, so the API suite runs against the same isolated database a developer would use. `tests/global-setup.ts` applies the committed migrations; the suite truncates tables between cases and uses `tests/.tmp-media` for uploads.
 
-Not in CI: the Playwright scripts `verify:homepage` and `verify:admin`. They need a running stack, a seeded administrator, and a browser, so they are run locally before a release (see §28). No formatting check is configured; lint and type checking are the enforced gates.
+The end-to-end job provisions its own stack: `prisma migrate deploy` plus `npm run create-admin` against a second PostgreSQL service, the API on port 4000, Vite on port 5173, and Chromium installed through `npx playwright install --with-deps chromium`. `npm run verify` builds the SPA, runs `verify:homepage` against `vite preview`, then `verify:admin`, and fails the job if either does. Both verifiers are non-destructive, so the CI database is left as it was found. No formatting check is configured; lint, type checking, and the test suites are the enforced gates.
 
 ## 25. Defect Management
 
@@ -908,7 +909,7 @@ The frontend is verified with `npm run verify:homepage` (portrait rendering, fal
 
 `tests/screenshots.test.ts` now asserts the trash behaviour: deleting a project keeps its gallery restorable, and permanent deletion cascades the gallery rows.
 
-End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the trash page, restores a trashed project, checks the bulk-selection toolbar appears and clears, permanently deletes from the trash, and loads the revision history, opens a snapshot to confirm the field-level diff and raw-snapshot control. It also creates two fixture projects, trashes them through the API, selects both in the trash, restores them with the bulk toolbar, verifies they are available again, trashes them again, and confirms that bulk permanent deletion names the selected count, reports success, and removes both records. Bulk publish/unpublish itself is intentionally left to the backend suite so the script never changes seeded portfolio content.
+End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the trash page, restores a trashed project, checks the bulk-selection toolbar appears and clears, permanently deletes from the trash, and loads the revision history, opens a snapshot to confirm the field-level diff and raw-snapshot control. It also creates two fixture projects, trashes them through the API, selects both in the trash, restores them with the bulk toolbar, verifies they are available again, trashes them again, and confirms that bulk permanent deletion names the selected count, reports success, and removes both records. `npm run verify` (in `frontend/`) runs the homepage verifier against `vite preview` and then the admin verifier, managing the preview server itself and failing if the API or dev server is missing. Both verifiers are non-destructive: the admin run restores the homepage portrait and draft layout it finds, restores site settings and profile values, and purges the fixtures it trashed plus leftovers from an interrupted earlier run. Bulk publish/unpublish itself is intentionally left to the backend suite so the script never changes seeded portfolio content.
 
 ## 30. Administrator Roles and Scheduled Publishing Coverage (Implemented)
 

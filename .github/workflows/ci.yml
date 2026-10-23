@@ -74,7 +74,99 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      - run: npm run test
       - run: npm run build
+
+  end-to-end:
+    name: End-to-end verifiers (Playwright)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio_dev_password
+          POSTGRES_DB: portfolio_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://portfolio:portfolio_dev_password@127.0.0.1:5433/portfolio_dev?schema=public
+      SESSION_SECRET: ci-session-secret-at-least-32-characters-long
+      ADMIN_EMAIL: owner@example.com
+      ADMIN_PASSWORD: Correct-Horse-Battery-Staple-9
+      ADMIN_NAME: Portfolio Owner
+      LOGIN_RATE_LIMIT_MAX: 100
+      MEDIA_UPLOAD_LIMIT_PER_HOUR: 100
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Set up the API
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run create-admin
+
+      - name: Start the API
+        working-directory: backend
+        run: |
+          nohup npm run dev > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4000/api/health > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "API did not become healthy"
+          cat /tmp/api.log
+          exit 1
+
+      - name: Set up the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test
+
+      - name: Start the dev server
+        working-directory: frontend
+        run: |
+          nohup npm run dev > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:5173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "Vite dev server did not become healthy"
+          cat /tmp/vite.log
+          exit 1
+
+      - name: Build and run both verifiers
+        working-directory: frontend
+        run: |
+          npm run build
+          npm run verify
+
+      - name: Upload verifier output on failure
+        if: failure()
+        run: cat /tmp/api.log /tmp/vite.log || true
 
   containers:
     name: Container images build

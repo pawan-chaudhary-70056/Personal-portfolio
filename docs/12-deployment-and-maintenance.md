@@ -919,13 +919,12 @@ POSTGRES_PASSWORD=... SESSION_SECRET=<at-least-32-characters> \
 
 ### 32.2 What CI enforces
 
-`ci.yml` runs three jobs on every push to `main` and every pull request, with read-only repository permissions and superseded runs cancelled:
+`ci.yml` runs four jobs on every push to `main` and every pull request, with read-only repository permissions and superseded runs cancelled:
 
 - **Backend:** `npm ci`, `prisma generate`, `tsc` for source and tests, the full Vitest suite against a throwaway PostgreSQL 18 service on port 5433, then `tsc` build output.
-- **Frontend:** `npm ci`, `oxlint`, and the production build (`tsc -b && vite build`).
+- **Frontend:** `npm ci`, `oxlint`, the Vitest unit-test suite, and the production build (`tsc -b && vite build`).
+- **End-to-end:** a second PostgreSQL service, migrations plus `create-admin`, the API and Vite dev server started in the background, then `npm run verify` — the production build, `verify:homepage` against `vite preview`, and `verify:admin`, with Chromium installed by Playwright. This job needs no external credentials because the verifiers are non-destructive and create their own fixtures.
 - **Containers:** both Dockerfiles must build.
-
-The Playwright verification scripts (`verify:homepage`, `verify:admin`) are not part of CI because they need seeded content and a browser; run them locally before a release.
 
 ## 33. Related Documentation
 
