@@ -928,7 +928,17 @@ End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the trash page,
 - Past times and malformed timestamps return 400; published and trashed records return 409; unknown records return 404.
 - `publishDueContent` promotes due records exactly once, clears the schedule, publishes the project, makes it visible on the public API, and writes one `scheduled` audit event per record.
 
-## 31. Related Documentation
+## 31. Public Image Resilience (Implemented)
+
+Public images (project covers, gallery screenshots, and profile portraits) point at external URLs that may later 404 — a media file deleted, a content platform changing its image host, or an upload replaced. Without handling, the browser renders a broken-image glyph on the public site.
+
+`frontend/src/components/ui/SafeImage.tsx` wraps every public `<img>`: it renders the image normally and, on an `error` event, swaps to a caller-supplied fallback (the numbered project placeholder for covers, an `Image unavailable` panel for gallery screenshots) or nothing when no fallback is given. It is used by `ProjectCard`, `ProjectDetailPage`, `Introduction`, and `AboutPage`. The hero portrait is a CSS background and degrades on its own.
+
+`frontend/src/components/ui/SafeImage.test.tsx` covers the three paths: the image renders with its props before any failure, an `error` event swaps to the fallback and removes the `<img>`, and an `error` without a fallback renders nothing. Testing Library cleanup is registered explicitly because the suite runs without Vitest globals.
+
+`frontend/scripts/capture-screens.mjs` captures the public and admin screenshots in `.qa/screenshots/` and writes the homepage tab order to `.qa/keyboard-focus.txt`, so visual and focus regressions can be reviewed from the repository rather than only from a live browser.
+
+## 32. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

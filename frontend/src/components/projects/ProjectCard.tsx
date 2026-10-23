@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { PublicProject } from '@/@types/portfolio'
+import { SafeImage } from '@/components/ui/SafeImage'
 
 interface ProjectCardProps {
   project: PublicProject
@@ -31,12 +32,21 @@ export function ProjectCard({ project, index }: ProjectCardProps) {
     <article className="group flex h-full flex-col transition-transform duration-[250ms] ease-standard hover:-translate-y-1">
       <div className="relative aspect-4/3 overflow-hidden bg-charcoal-900">
         {cover ? (
-          <img
+          <SafeImage
             src={cover.url}
             alt={cover.alt}
             loading="lazy"
             decoding="async"
             className="h-full w-full object-cover transition-transform duration-[400ms] ease-standard group-hover:scale-[1.02]"
+            fallback={
+              <div
+                aria-hidden="true"
+                className="flex h-full flex-col justify-between border border-ivory/10 p-6"
+              >
+                <span className="h-px w-10 bg-gold/70" />
+                <span className="font-serif text-h2 text-muted-dark">{displayIndex}</span>
+              </div>
+            }
           />
         ) : (
           <div

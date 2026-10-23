@@ -25,3 +25,6 @@ dist-ssr
 
 # Verification artifacts
 scripts/*.png
+
+# Visual QA output (npm run qa:screens)
+.qa/

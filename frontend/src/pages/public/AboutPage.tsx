@@ -8,6 +8,7 @@ import { PortfolioGate } from '@/components/portfolio/PortfolioGate'
 import { SkillsOverview } from '@/components/portfolio/SkillsOverview'
 import { ButtonLink } from '@/components/ui/ButtonLink'
 import { Reveal } from '@/components/ui/Reveal'
+import { SafeImage } from '@/components/ui/SafeImage'
 import { setPageMetadata } from '@/utils/metadata'
 import { biographyParagraphs, biographySummary } from '@/utils/profileText'
 
@@ -80,7 +81,7 @@ function AboutContent({ content }: { content: PortfolioContent }) {
             </h2>
 
             {profile?.portraitUrl ? (
-              <img
+              <SafeImage
                 src={profile.portraitUrl}
                 alt={profile.portraitAlt ?? ''}
                 loading="lazy"

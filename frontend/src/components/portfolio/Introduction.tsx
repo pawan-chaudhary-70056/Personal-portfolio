@@ -1,6 +1,7 @@
 import type { PublicProfile } from '@/@types/portfolio'
 import { Section } from '@/components/layout/Section'
 import { Reveal } from '@/components/ui/Reveal'
+import { SafeImage } from '@/components/ui/SafeImage'
 import { biographyParagraphs } from '@/utils/profileText'
 
 const linkLabels = [
@@ -41,7 +42,7 @@ export function Introduction({ profile }: { profile: PublicProfile | null }) {
           </h2>
 
           {profile.portraitUrl ? (
-            <img
+            <SafeImage
               src={profile.portraitUrl}
               alt={profile.portraitAlt ?? ''}
               loading="lazy"

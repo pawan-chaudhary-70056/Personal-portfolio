@@ -185,9 +185,34 @@ check(
   'project category management renders',
 )
 
-await page.getByLabel('Name').fill('Verification')
+const verificationCategoryName = `Verification-${Date.now()}`
+await page.getByLabel('Name').fill(verificationCategoryName)
+
+const categoryResponsePromise = page.waitForResponse(
+  (response) =>
+    response.url().includes('/api/admin/project-categories') &&
+    response.request().method() === 'POST',
+  { timeout: 15_000 },
+)
+
 await page.getByRole('button', { name: 'Create category' }).click()
-await page.getByText('was created.').first().waitFor({ timeout: 10_000 })
+
+try {
+  const response = await categoryResponsePromise
+  console.log('Category POST status:', response.status())
+  console.log('Category POST body:', await response.text())
+} catch (error) {
+  console.error('Category POST request was not captured:', error.message)
+  console.error('Visible page errors:', await page.locator('body').innerText())
+  throw error
+}
+
+console.log('Page after category submit:', await page.locator('body').innerText())
+
+await page.getByText(
+  `“${verificationCategoryName}” was created.`,
+  { exact: true },
+).waitFor({ timeout: 10_000 })
 check(
   await waitVisible(page.getByRole('row', { name: /Verification/ })),
   'a new project category is listed',
@@ -221,8 +246,9 @@ check(
 await page.getByLabel('Title').first().fill(title)
 await page.getByLabel('Summary').fill(summary)
 await page.getByLabel('Year').fill('2026')
-await page.getByRole('option', { name: 'Verification' }).waitFor({ state: 'attached' })
-await page.getByLabel('Category').selectOption('Verification')
+await page
+  .getByLabel('Category')
+  .selectOption({ label: verificationCategoryName })
 await page.getByLabel('Technologies').fill('Playwright, Supertest')
 await page
   .getByLabel('Description', { exact: true })

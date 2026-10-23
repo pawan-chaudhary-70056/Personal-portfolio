@@ -8,6 +8,7 @@ import { PortfolioGate } from '@/components/portfolio/PortfolioGate'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import { ButtonLink } from '@/components/ui/ButtonLink'
 import { Reveal } from '@/components/ui/Reveal'
+import { SafeImage } from '@/components/ui/SafeImage'
 import { formatDate } from '@/utils/formatDate'
 import { setPageMetadata } from '@/utils/metadata'
 import { textParagraphs } from '@/utils/profileText'
@@ -98,7 +99,7 @@ function ProjectDetailContent({ content }: { content: PortfolioContent }) {
             ) : null}
 
             {project.imageUrl ? (
-              <img
+              <SafeImage
                 src={project.imageUrl}
                 alt={project.imageAlt ?? ''}
                 loading="lazy"
@@ -201,12 +202,20 @@ function ProjectDetailContent({ content }: { content: PortfolioContent }) {
                     rel="noreferrer noopener"
                     className="block overflow-hidden"
                   >
-                    <img
+                    <SafeImage
                       src={screenshot.url}
                       alt={screenshot.alt}
                       loading="lazy"
                       decoding="async"
                       className="aspect-16/10 w-full border border-ivory/10 object-cover transition-transform duration-[400ms] ease-standard hover:scale-[1.02]"
+                      fallback={
+                        <div
+                          aria-hidden="true"
+                          className="flex aspect-16/10 w-full items-center justify-center border border-ivory/10 bg-charcoal-900 text-caption tracking-[0.14em] text-muted-dark uppercase"
+                        >
+                          Image unavailable
+                        </div>
+                      }
                     />
                     <span className="sr-only"> (opens in a new tab)</span>
                   </a>
