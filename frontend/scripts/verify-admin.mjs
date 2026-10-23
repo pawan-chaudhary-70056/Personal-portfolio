@@ -162,6 +162,21 @@ check(
 )
 await audit('the admin overview')
 
+// Leftovers from an interrupted earlier run: clear them before anything else
+// so the trash page starts from the same state every time.
+const initialTrash = await page.request.get(`${BASE_URL}/api/admin/trash?pageSize=50`)
+const initialTrashPayload = initialTrash.ok() ? await initialTrash.json() : null
+const staleFixtures = (initialTrashPayload?.items ?? []).filter((item) =>
+  item.title.startsWith('E2E'),
+)
+if (staleFixtures.length > 0) {
+  const stalePurge = await page.request.post(`${BASE_URL}/api/admin/trash/purge`, {
+    headers: { 'x-csrf-token': await currentCsrfToken() },
+    data: { items: staleFixtures.map((item) => ({ type: item.type, id: item.id })) },
+  })
+  check(stalePurge.ok(), 'leftover fixtures from an interrupted run are purged')
+}
+
 // ------------------------------------------------- manage project categories
 await page.getByRole('link', { name: 'Project categories' }).click()
 await page.waitForURL('**/admin/project-categories')
@@ -792,6 +807,33 @@ check(
 )
 await audit('the homepage management page')
 
+// Snapshot the homepage first: the run must leave a developer's homepage
+// exactly as it found it. A fresh database (CI) has no portrait and takes the
+// full publish → remove path; an existing portrait takes the restore path.
+const homepageBefore = (
+  await (await page.request.get(`${BASE_URL}/api/admin/homepage`)).json()
+).homepage
+const originalDraft = homepageBefore.draft
+const originalPublished = homepageBefore.published
+const hadPortrait = Boolean(originalDraft.portrait || originalPublished?.portrait)
+
+const homepageFields = (state) => ({
+  portraitVisible: state.portraitVisible,
+  effectEnabled: state.effectEnabled,
+  tiltIntensity: state.tiltIntensity,
+  animationIntensity: state.animationIntensity,
+  floatingEnabled: state.floatingEnabled,
+  sectionOrder: state.sectionOrder,
+  hiddenSections: state.hiddenSections,
+  featuredProjectIds: state.featuredProjectIds,
+})
+
+const patchHomepageDraft = async (fields) =>
+  page.request.patch(`${BASE_URL}/api/admin/homepage`, {
+    headers: { 'x-csrf-token': await currentCsrfToken() },
+    data: fields,
+  })
+
 await page.setInputFiles('#hero-portrait-file', heroPngPath)
 check(
   await waitVisible(page.getByText('Local preview of')),
@@ -807,7 +849,8 @@ check(
 
 const heroBeforePublish = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
 check(
-  heroBeforePublish.hero.portrait === null,
+  (heroBeforePublish.hero.portrait?.id ?? null) ===
+    (originalPublished?.portrait?.id ?? null),
   'the draft portrait is not public before publishing',
 )
 
@@ -817,43 +860,102 @@ await page.getByRole('button', { name: 'Save draft' }).click()
 await page.getByText('Draft saved.').waitFor({ timeout: 10_000 })
 check(await waitVisible(page.getByText('Draft saved.')), 'saving the portrait draft reports success')
 
-await page.getByRole('button', { name: 'Publish changes' }).click()
-await page.getByText('Changes published.').waitFor({ timeout: 10_000 })
+let removedPortraitPreviewPath = null
 
-const heroAfterPublish = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
-check(
-  heroAfterPublish.hero.portrait?.alt === heroAlt,
-  'the published portrait and alt text reach the public API',
-)
-// This portrait is deliberately deleted later in the run, so a late preview
-// request for its admin file can legitimately return 404 once the file is gone.
-const removedPortraitPreviewPath = heroAfterPublish.hero.portrait?.id
-  ? `/api/admin/media/${heroAfterPublish.hero.portrait.id}/file`
-  : null
+if (hadPortrait) {
+  // Restore path: put the original draft back instead of publishing, so a
+  // real homepage portrait is never replaced or removed by verification.
+  if (originalDraft.portrait) {
+    const originalBytes = await page.request.get(`${BASE_URL}${originalDraft.portrait.url}`)
+    const extension =
+      originalDraft.portrait.mimeType === 'image/webp'
+        ? 'webp'
+        : originalDraft.portrait.mimeType === 'image/jpeg'
+          ? 'jpg'
+          : 'png'
+    const restored = await page.request.post(`${BASE_URL}/api/admin/homepage/portrait`, {
+      headers: { 'x-csrf-token': await currentCsrfToken() },
+      multipart: {
+        file: {
+          name: `portrait.${extension}`,
+          mimeType: originalDraft.portrait.mimeType,
+          buffer: await originalBytes.body(),
+        },
+      },
+    })
+    check(restored.ok(), 'the previous draft portrait is re-uploaded')
+    const restoredAlt = await patchHomepageDraft({
+      portraitAlt: originalDraft.portrait.alt || null,
+    })
+    check(restoredAlt.ok(), 'the previous portrait description is restored')
+  } else {
+    const cleared = await page.request.delete(`${BASE_URL}/api/admin/homepage/portrait`, {
+      headers: { 'x-csrf-token': await currentCsrfToken() },
+    })
+    check(cleared.ok(), 'the test draft portrait is cleared after verification')
+  }
 
-const heroImageResponse = await page.request.get(
-  `${BASE_URL}${heroAfterPublish.hero.portrait.url}`,
-)
-check(
-  heroImageResponse.status() === 200 &&
-    heroImageResponse.headers()['content-type'] === 'image/png',
-  'the published portrait bytes are served',
-)
-await audit('the published hero preview')
+  const heroAfterRestore = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
+  check(
+    (heroAfterRestore.hero.portrait?.id ?? null) ===
+      (originalPublished?.portrait?.id ?? null),
+    'verification leaves the public portrait unchanged',
+  )
+  await audit('the restored homepage portrait')
+} else {
+  await page.getByRole('button', { name: 'Publish changes' }).click()
+  await page.getByText('Changes published.').waitFor({ timeout: 10_000 })
 
-await page.getByRole('button', { name: 'Remove draft portrait' }).click()
-const heroDialog = page.getByRole('dialog')
-await heroDialog.waitFor({ timeout: 5000 })
-await heroDialog.getByRole('button', { name: 'Remove portrait' }).click()
-await page.getByText('Draft portrait removed.').waitFor({ timeout: 10_000 })
-await page.getByRole('button', { name: 'Publish changes' }).click()
-await page.getByText('Changes published.').waitFor({ timeout: 10_000 })
+  const heroAfterPublish = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
+  check(
+    heroAfterPublish.hero.portrait?.alt === heroAlt,
+    'the published portrait and alt text reach the public API',
+  )
+  // This portrait is deliberately deleted later in the run, so a late preview
+  // request for its admin file can legitimately return 404 once the file is gone.
+  removedPortraitPreviewPath = heroAfterPublish.hero.portrait?.id
+    ? `/api/admin/media/${heroAfterPublish.hero.portrait.id}/file`
+    : null
 
-const heroAfterRemoval = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
-check(
-  heroAfterRemoval.hero.portrait === null,
-  'removing the portrait and publishing restores the fallback',
-)
+  const heroImageResponse = await page.request.get(
+    `${BASE_URL}${heroAfterPublish.hero.portrait.url}`,
+  )
+  check(
+    heroImageResponse.status() === 200 &&
+      heroImageResponse.headers()['content-type'] === 'image/png',
+    'the published portrait bytes are served',
+  )
+  await audit('the published hero preview')
+
+  await page.getByRole('button', { name: 'Remove draft portrait' }).click()
+  const heroDialog = page.getByRole('dialog')
+  await heroDialog.waitFor({ timeout: 5000 })
+  await heroDialog.getByRole('button', { name: 'Remove portrait' }).click()
+  await page.getByText('Draft portrait removed.').waitFor({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Publish changes' }).click()
+  await page.getByText('Changes published.').waitFor({ timeout: 10_000 })
+
+  const heroAfterRemoval = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
+  check(
+    heroAfterRemoval.hero.portrait === null,
+    'removing the portrait and publishing restores the fallback',
+  )
+
+  // Publishing the test draft overwrote the published hero state, so restore
+  // published first and the draft second.
+  if (originalPublished) {
+    const restorePublished = await patchHomepageDraft(homepageFields(originalPublished))
+    check(restorePublished.ok(), 'the previous published homepage settings are restored')
+    const republish = await page.request.post(`${BASE_URL}/api/admin/homepage/publish`, {
+      headers: { 'x-csrf-token': await currentCsrfToken() },
+      data: {},
+    })
+    check(republish.ok(), 'the previous published homepage is republished')
+  }
+
+  const restoreDraft = await patchHomepageDraft(homepageFields(originalDraft))
+  check(restoreDraft.ok(), 'the previous homepage draft settings are restored')
+}
 
 rmSync(heroPngPath, { force: true })
 
@@ -882,6 +984,9 @@ check(
   await waitVisible(page.getByText('Homepage layout saved as a draft.')),
   'saving the homepage layout reports success',
 )
+
+const layoutRestored = await patchHomepageDraft(homepageFields(originalDraft))
+check(layoutRestored.ok(), 'the previous homepage layout draft is restored')
 
 // ------------------------------------------------------------ site settings
 await page.getByRole('link', { name: 'Site settings' }).click()
@@ -1485,6 +1590,27 @@ check(
   (await page.getByText(`Message from ${contactName} was deleted.`).count()) === 1,
   'deleting a message reports success',
 )
+
+// ----------------------------------------------------- purge own fixtures
+// The verifier moves several records to the trash; remove them while the
+// session is still signed in (sign-out happens later) so repeated runs never
+// clutter the developer's trash.
+const trashBefore = await page.request.get(`${BASE_URL}/api/admin/trash?pageSize=50`)
+const trashPayload = trashBefore.ok() ? await trashBefore.json() : null
+const ownTrashed = (trashPayload?.items ?? []).filter((item) => item.title.startsWith('E2E'))
+
+if (ownTrashed.length > 0) {
+  const purgeResponse = await page.request.post(`${BASE_URL}/api/admin/trash/purge`, {
+    headers: { 'x-csrf-token': await currentCsrfToken() },
+    data: { items: ownTrashed.map((item) => ({ type: item.type, id: item.id })) },
+  })
+  check(purgeResponse.ok(), 'the verifier purges the fixtures it trashed')
+
+  const trashAfter = await page.request.get(`${BASE_URL}/api/admin/trash?pageSize=50`)
+  const afterPayload = trashAfter.ok() ? await trashAfter.json() : null
+  const remaining = (afterPayload?.items ?? []).filter((item) => item.title.startsWith('E2E'))
+  check(remaining.length === 0, 'no verifier fixtures remain in the trash')
+}
 
 // ------------------------------------------------------------- sessions
 // A second browser signs in so the first can revoke its session.
