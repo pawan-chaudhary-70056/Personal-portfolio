@@ -32,7 +32,7 @@ const descriptionFirst = 'A detailed description paragraph written by the verifi
 const descriptionSecond = 'A second paragraph confirms that blank lines become separate paragraphs.'
 const liveUrl = 'https://example.com/e2e-live'
 const repositoryUrl = 'https://example.com/e2e-repo'
-const screenshotUrl = 'https://example.com/e2e-screenshot.png'
+const screenshotUrl = 'http://127.0.0.1:5173/e2e-screenshot.png'
 const screenshotAlt = 'E2E screenshot of the project'
 const screenshotCaption = 'E2E caption'
 const contactName = `E2E Visitor ${Date.now()}`
@@ -660,17 +660,16 @@ check(
 // --------------------------------------------- delete unused project category
 await page.getByRole('link', { name: 'Project categories' }).click()
 await page.waitForURL('**/admin/project-categories')
-await page.getByRole('button', { name: 'Delete Verification' }).click()
+await page.getByRole('button', { name: `Delete ${verificationCategoryName}`, exact: true }).click()
 const projectCategoryDialog = page.getByRole('dialog')
 await projectCategoryDialog.waitFor({ timeout: 5000 })
 await projectCategoryDialog.getByRole('button', { name: 'Delete category' }).click()
 await page.getByText('was deleted.').first().waitFor({ timeout: 10_000 })
 await page
-  .getByRole('row', { name: /Verification/ })
+  .getByRole('row', { name: new RegExp(verificationCategoryName) })
   .waitFor({ state: 'detached', timeout: 10_000 })
-  .catch(() => {})
 check(
-  (await page.getByRole('row', { name: /Verification/ }).count()) === 0,
+  (await page.getByRole('row', { name: new RegExp(verificationCategoryName) }).count()) === 0,
   'an unused project category can be deleted',
 )
 
