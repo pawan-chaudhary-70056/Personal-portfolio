@@ -9,11 +9,14 @@ import {
   type SkillListResponse,
 } from '@/api/content.api'
 import { useSession } from '@/auth/useSession'
+import { BulkActionsBar } from '@/components/admin/BulkActionsBar'
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog'
 import { VisibilityBadge } from '@/components/admin/VisibilityBadge'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { inputClassName } from '@/components/ui/fieldStyles'
 import { useApiResource } from '@/hooks/useApiResource'
+import { useBulkContentActions } from '@/hooks/useBulkContentActions'
+import { useBulkSelection } from '@/hooks/useBulkSelection'
 import { setPageMetadata } from '@/utils/metadata'
 
 export function AdminSkillsPage() {
@@ -101,7 +104,7 @@ export function AdminSkillsPage() {
 
     try {
       await deleteSkill(deleteTarget.id)
-      setNotice(`“${deleteTarget.name}” was permanently deleted.`)
+      setNotice(`“${deleteTarget.name}” was moved to the trash.`)
       setDeleteTarget(null)
       reload()
     } catch (caught) {
@@ -115,6 +118,17 @@ export function AdminSkillsPage() {
   }
 
   const skills = data?.skills ?? []
+  const selection = useBulkSelection(skills.map((skill) => skill.id))
+  const bulk = useBulkContentActions({
+    type: 'skill',
+    noun: 'skill',
+    selectedIds: selection.selectedIds,
+    clearSelection: selection.clear,
+    reload,
+    onNotice: setNotice,
+    onError: setActionError,
+    onUnauthorized: handleUnauthorized,
+  })
   const loading = status === 'loading'
   const showEmpty = !loading && skills.length === 0
   const error = actionError ?? (status === 'error' ? loadError : null)
@@ -167,6 +181,16 @@ export function AdminSkillsPage() {
         />
       </div>
 
+      <BulkActionsBar
+        count={selection.selectedIds.length}
+        noun="skill"
+        busy={bulk.busy}
+        onPublish={bulk.publish}
+        onUnpublish={bulk.unpublish}
+        onDelete={bulk.requestDelete}
+        onClear={selection.clear}
+      />
+
       <div className="mt-8">
         {loading && !data ? (
           <p role="status" className="text-body-sm text-muted-light">
@@ -195,6 +219,15 @@ export function AdminSkillsPage() {
               </caption>
               <thead>
                 <tr className="border-b border-charcoal/20">
+                  <th scope="col" className="w-10 py-3 pr-4">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all skills"
+                      checked={selection.allSelected}
+                      onChange={selection.toggleAll}
+                      className="size-4 accent-gold"
+                    />
+                  </th>
                   <th
                     scope="col"
                     className="py-3 pr-4 text-caption tracking-[0.14em] text-muted-light uppercase"
@@ -230,6 +263,15 @@ export function AdminSkillsPage() {
               <tbody>
                 {skills.map((skill) => (
                   <tr key={skill.id} className="border-b border-charcoal/10 align-top">
+                    <td className="py-4 pr-4">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${skill.name}`}
+                        checked={selection.isSelected(skill.id)}
+                        onChange={() => selection.toggle(skill.id)}
+                        className="size-4 accent-gold"
+                      />
+                    </td>
                     <td className="py-4 pr-4">
                       <Link
                         to={`/admin/skills/${skill.id}`}
@@ -290,14 +332,27 @@ export function AdminSkillsPage() {
         title="Delete this skill?"
         description={
           deleteTarget
-            ? `“${deleteTarget.name}” will be permanently deleted. This cannot be undone. To keep it private instead, hide it.`
+            ? `“${deleteTarget.name}” will be moved to the trash and hidden from the portfolio. You can restore it from Trash. To keep it private instead, hide it.`
             : ''
         }
-        confirmLabel="Delete skill"
+        confirmLabel="Move to trash"
         destructive
         busy={deleting}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={bulk.deleteOpen}
+        title="Move these skills to the trash?"
+        description={`${selection.selectedIds.length} selected skill${
+          selection.selectedIds.length === 1 ? '' : 's'
+        } will be hidden from the portfolio and can be restored from Trash.`}
+        confirmLabel="Move to trash"
+        destructive
+        busy={bulk.busy}
+        onConfirm={bulk.confirmDelete}
+        onCancel={bulk.cancelDelete}
       />
     </>
   )

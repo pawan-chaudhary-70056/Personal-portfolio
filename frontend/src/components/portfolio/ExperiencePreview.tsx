@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom'
+import type { PublicExperience } from '@/@types/portfolio'
 import { Section } from '@/components/layout/Section'
 import { Reveal } from '@/components/ui/Reveal'
-import { experience } from '@/content/portfolio'
+import { formatDateRange } from '@/utils/formatDate'
 
-export function ExperiencePreview() {
+export function ExperiencePreview({ experience }: { experience: PublicExperience[] }) {
   return (
     <Section
       id="experience"
@@ -18,9 +20,16 @@ export function ExperiencePreview() {
               Where the work has happened.
             </h2>
           </div>
-          <p className="text-caption tracking-[0.14em] text-muted-dark uppercase">
-            {experience.length} {experience.length === 1 ? 'Entry' : 'Entries'}
-          </p>
+          <div className="flex items-center gap-6">
+            {experience.length > 0 ? (
+              <p className="text-caption tracking-[0.14em] text-muted-dark uppercase">
+                {experience.length} {experience.length === 1 ? 'Entry' : 'Entries'}
+              </p>
+            ) : null}
+            <Link to="/experience" className="link-underline text-body-sm text-gold hover:text-ivory">
+              Full experience →
+            </Link>
+          </div>
         </div>
       </Reveal>
 
@@ -31,23 +40,28 @@ export function ExperiencePreview() {
               <Reveal delay={index * 60}>
                 <div className="grid gap-3 py-8 sm:grid-cols-[200px_minmax(0,1fr)] sm:gap-10">
                   <p className="flex items-center gap-2 text-caption tracking-[0.14em] text-muted-dark uppercase">
-                    {entry.current ? (
+                    {entry.isCurrent ? (
                       <span aria-hidden="true" className="size-1.5 rounded-full bg-gold" />
                     ) : null}
-                    {entry.period}
+                    {formatDateRange(entry.startDate, entry.endDate, entry.isCurrent)}
                   </p>
 
                   <div>
                     <h3 className="text-h3 text-ivory">{entry.role}</h3>
                     <p className="mt-1 text-body-sm text-gold">
                       {entry.organization}
-                      {entry.sample ? (
-                        <span className="ml-3 text-caption tracking-wide text-muted-dark uppercase">
-                          Sample
-                        </span>
+                      {entry.employmentType ? (
+                        <span className="text-muted-dark"> · {entry.employmentType}</span>
+                      ) : null}
+                      {entry.location ? (
+                        <span className="text-muted-dark"> · {entry.location}</span>
                       ) : null}
                     </p>
-                    <p className="mt-3 max-w-xl text-body-sm text-ivory/65">{entry.summary}</p>
+                    {entry.description ? (
+                      <p className="mt-3 max-w-xl text-body-sm text-ivory/65">
+                        {entry.description}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </Reveal>

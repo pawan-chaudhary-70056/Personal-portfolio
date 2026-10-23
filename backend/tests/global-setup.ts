@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import { mkdirSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import { TEST_DATABASE_URL } from './config.js'
 
 /**
@@ -13,4 +15,9 @@ export default function setup(): void {
     env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
     stdio: 'inherit',
   })
+
+  // Uploaded test media must start empty so cleanup assertions are meaningful.
+  const mediaRoot = path.resolve(process.cwd(), 'tests/.tmp-media')
+  rmSync(mediaRoot, { recursive: true, force: true })
+  mkdirSync(mediaRoot, { recursive: true })
 }

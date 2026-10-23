@@ -110,6 +110,32 @@
     transform: scaleX(1);
   }
 
+  /* Hero portrait depth. Transform values are written as custom properties by
+     the component on animation frames, so pointer movement never re-renders. */
+  .hero-portrait-tilt {
+    transform: perspective(1200px) rotateX(var(--hero-rotate-x, 0deg))
+      rotateY(var(--hero-rotate-y, 0deg))
+      translate3d(var(--hero-shift-x, 0px), var(--hero-shift-y, 0px), 0);
+    transition: transform 450ms var(--ease-standard);
+    will-change: transform;
+  }
+
+  /* Static presentation: no transition, no transform, no will-change cost. */
+  .hero-portrait-static {
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+
+  .hero-portrait-float {
+    animation: hero-float var(--hero-float-duration, 11s) ease-in-out infinite;
+  }
+
+  /* Pause the drift while the pointer is on the frame. */
+  .hero-portrait-frame:hover .hero-portrait-float {
+    animation-play-state: paused;
+  }
+
   /* Scroll reveals. Default state is fully visible so content is never
      stuck invisible if observation never runs. */
   [data-reveal='pending'] {
@@ -123,6 +149,17 @@
     transition:
       opacity 600ms var(--ease-editorial) var(--reveal-delay, 0ms),
       transform 600ms var(--ease-editorial) var(--reveal-delay, 0ms);
+  }
+}
+
+@keyframes hero-float {
+  0%,
+  100% {
+    transform: translateY(calc(var(--hero-float-amplitude, 2px) * -1));
+  }
+
+  50% {
+    transform: translateY(var(--hero-float-amplitude, 2px));
   }
 }
 

@@ -3,7 +3,14 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useSession } from '@/auth/useSession'
 import { cn } from '@/utils/cn'
 
-const navGroups = [
+interface NavLinkConfig {
+  to: string
+  label: string
+  end: boolean
+  ownerOnly?: boolean
+}
+
+const navGroups: { label: string; links: NavLinkConfig[] }[] = [
   {
     label: 'Dashboard',
     links: [{ to: '/admin', label: 'Overview', end: true }],
@@ -11,16 +18,39 @@ const navGroups = [
   {
     label: 'Portfolio content',
     links: [
+      { to: '/admin/profile', label: 'Profile', end: false },
+      { to: '/admin/homepage', label: 'Homepage', end: false },
+      { to: '/admin/settings', label: 'Site settings', end: false, ownerOnly: true },
       { to: '/admin/projects', label: 'Projects', end: false },
+      { to: '/admin/project-categories', label: 'Project categories', end: false },
       { to: '/admin/skills', label: 'Skills', end: false },
+      { to: '/admin/skill-categories', label: 'Skill categories', end: false },
       { to: '/admin/experience', label: 'Experience', end: false },
+      { to: '/admin/education', label: 'Education', end: false },
+      { to: '/admin/certifications', label: 'Certifications', end: false },
+      { to: '/admin/media', label: 'Media', end: false },
+    ],
+  },
+  {
+    label: 'Inbox',
+    links: [{ to: '/admin/messages', label: 'Messages', end: false }],
+  },
+  {
+    label: 'Maintenance',
+    links: [
+      { to: '/admin/trash', label: 'Trash', end: false },
+      { to: '/admin/revisions', label: 'Revisions', end: false },
+      { to: '/admin/scheduling', label: 'Scheduling', end: false },
+      { to: '/admin/health', label: 'Health', end: false, ownerOnly: true },
+      { to: '/admin/analytics', label: 'Analytics', end: false, ownerOnly: true },
     ],
   },
   {
     label: 'Security',
     links: [
-      { to: '/admin/audit-logs', label: 'Activity log', end: false },
-      { to: '/admin/sessions', label: 'Sessions', end: false },
+      { to: '/admin/audit-logs', label: 'Activity log', end: false, ownerOnly: true },
+      { to: '/admin/sessions', label: 'Sessions', end: false, ownerOnly: true },
+      { to: '/admin/administrators', label: 'Administrators', end: false, ownerOnly: true },
     ],
   },
 ]
@@ -33,25 +63,32 @@ interface AdminNavProps {
   onNavigate?: () => void
   onSignOut: () => void
   signingOut: boolean
+  role: 'OWNER' | 'EDITOR' | undefined
 }
 
-function AdminNav({ onNavigate, onSignOut, signingOut }: AdminNavProps) {
+function AdminNav({ onNavigate, onSignOut, signingOut, role }: AdminNavProps) {
   return (
     <>
       <nav aria-label="Admin" className="space-y-6">
         {navGroups.map((group) => {
+          const links = group.links.filter((link) => !link.ownerOnly || role === 'OWNER')
+
+          if (links.length === 0) {
+            return null
+          }
+
           const headingId = groupHeadingId(group.label)
 
           return (
             <div key={group.label}>
               <p
                 id={headingId}
-                className="px-4 text-caption tracking-[0.14em] text-ivory/40 uppercase"
+                className="px-4 text-caption tracking-[0.14em] text-ivory/60 uppercase"
               >
                 {group.label}
               </p>
               <ul aria-labelledby={headingId} className="mt-2 space-y-1">
-                {group.links.map((link) => (
+                {links.map((link) => (
                   <li key={link.to}>
                     <NavLink
                       to={link.to}
@@ -122,13 +159,13 @@ export function AdminLayout() {
         Skip to admin content
       </a>
 
-      <aside className="hidden bg-charcoal text-ivory lg:sticky lg:top-0 lg:flex lg:h-svh lg:flex-col lg:pb-6">
+      <aside className="hidden bg-charcoal text-ivory lg:sticky lg:top-0 lg:flex lg:h-svh lg:flex-col lg:overflow-y-auto lg:pb-6">
         <div className="px-4 py-6">
           <p className="text-sm font-medium tracking-[0.3em] text-gold uppercase">Portfolio</p>
           <p className="mt-1 text-caption tracking-[0.14em] text-ivory/50 uppercase">Admin</p>
         </div>
 
-        <AdminNav onSignOut={handleSignOut} signingOut={signingOut} />
+        <AdminNav onSignOut={handleSignOut} signingOut={signingOut} role={admin?.role} />
 
         <div className="mt-6 border-t border-ivory/10 px-4 pt-4">
           <p className="text-body-sm text-ivory">{admin?.name}</p>
@@ -164,6 +201,7 @@ export function AdminLayout() {
               onNavigate={() => setNavOpen(false)}
               onSignOut={handleSignOut}
               signingOut={signingOut}
+              role={admin?.role}
             />
           </div>
         ) : null}

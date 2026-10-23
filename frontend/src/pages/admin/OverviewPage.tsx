@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import type { OverviewResponse } from '@/@types/admin'
 import { getOverview } from '@/api/admin.api'
+import { useSession } from '@/auth/useSession'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { useApiResource } from '@/hooks/useApiResource'
 import { auditActionLabel } from '@/utils/auditLabels'
@@ -9,6 +10,7 @@ import { formatDateTime } from '@/utils/formatDate'
 import { setPageMetadata } from '@/utils/metadata'
 
 export function AdminOverviewPage() {
+  const { admin } = useSession()
   const fetcher = useCallback(
     (signal: AbortSignal) => getOverview(signal),
     [],
@@ -51,6 +53,18 @@ export function AdminOverviewPage() {
       note: `${data?.content.experience.published ?? 0} published`,
       href: '/admin/experience',
     },
+    {
+      label: 'Education',
+      value: data?.content.education.total,
+      note: `${data?.content.education.published ?? 0} published`,
+      href: '/admin/education',
+    },
+    {
+      label: 'Certifications',
+      value: data?.content.certifications.total,
+      note: `${data?.content.certifications.published ?? 0} published`,
+      href: '/admin/certifications',
+    },
   ]
 
   return (
@@ -60,12 +74,20 @@ export function AdminOverviewPage() {
           <p className="eyebrow text-gold-ink">Overview</p>
           <h1 className="mt-3 text-h2">Content at a glance</h1>
         </div>
-        <Link
-          to="/admin/projects/new"
-          className="min-h-11 bg-gold px-5 py-3 text-body-sm font-medium text-charcoal transition-colors duration-150 ease-standard hover:bg-[#d3bb8d]"
-        >
-          New project
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/admin/profile"
+            className="min-h-11 border border-charcoal/30 px-5 py-3 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+          >
+            Edit profile
+          </Link>
+          <Link
+            to="/admin/projects/new"
+            className="min-h-11 bg-gold px-5 py-3 text-body-sm font-medium text-charcoal transition-colors duration-150 ease-standard hover:bg-[#d3bb8d]"
+          >
+            New project
+          </Link>
+        </div>
       </header>
 
       {error ? (
@@ -96,7 +118,7 @@ export function AdminOverviewPage() {
 
       <div
         aria-busy={loading}
-        className="mt-6 grid gap-px border border-charcoal/15 bg-charcoal/15 sm:grid-cols-2"
+        className="mt-6 grid gap-px border border-charcoal/15 bg-charcoal/15 sm:grid-cols-2 lg:grid-cols-4"
       >
         {contentCards.map((card) => (
           <div key={card.label} className="bg-ivory p-6">
@@ -124,12 +146,14 @@ export function AdminOverviewPage() {
           <h2 id="activity-heading" className="text-h3">
             Recent activity
           </h2>
-          <Link
-            to="/admin/audit-logs"
-            className="text-caption text-charcoal underline underline-offset-4"
-          >
-            View full activity log
-          </Link>
+          {admin?.role === 'OWNER' ? (
+            <Link
+              to="/admin/audit-logs"
+              className="text-caption text-charcoal underline underline-offset-4"
+            >
+              View full activity log
+            </Link>
+          ) : null}
         </div>
 
         {loading ? (

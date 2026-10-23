@@ -2,6 +2,7 @@ interface PageMetadata {
   title: string
   description: string
   url?: string
+  image?: string
 }
 
 function upsertMeta(attribute: 'name' | 'property', key: string, content: string): void {
@@ -23,7 +24,7 @@ function upsertMeta(attribute: 'name' | 'property', key: string, content: string
  * pre-rendered at build time so crawlers and link unfurls get real HTML
  * (docs/06-frontend-architecture.md §15).
  */
-export function setPageMetadata({ title, description, url }: PageMetadata): void {
+export function setPageMetadata({ title, description, url, image }: PageMetadata): void {
   document.title = title
 
   upsertMeta('name', 'description', description)
@@ -32,5 +33,10 @@ export function setPageMetadata({ title, description, url }: PageMetadata): void
 
   if (url) {
     upsertMeta('property', 'og:url', url)
+  }
+
+  if (image) {
+    upsertMeta('property', 'og:image', image)
+    upsertMeta('name', 'twitter:card', 'summary_large_image')
   }
 }

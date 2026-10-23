@@ -27,19 +27,60 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum AdminRole {
+  OWNER
+  EDITOR
+}
+
 /// The portfolio owner. There is no public registration: accounts are created
-/// with `npm run create-admin`.
+/// with `npm run create-admin` or by an owner in the dashboard.
 model Admin {
   id           String   @id @default(cuid())
   email        String   @unique @db.VarChar(254)
   name         String   @db.VarChar(120)
   passwordHash String   @db.Text
+  role         AdminRole @default(EDITOR)
   isActive     Boolean  @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   auditEvents AuditEvent[]
+  contentRevisions ContentRevision[]
+}
+
+/// The single public professional profile. The primary key is fixed to
+/// "primary" so application CRUD cannot create duplicate profiles.
+model Profile {
+  id          String   @id @default("primary") @db.VarChar(16)
+  displayName String   @db.VarChar(120)
+  headline    String   @db.VarChar(160)
+  biography   String   @db.Text
+  location    String?  @db.VarChar(120)
+  publicEmail String?  @db.VarChar(254)
+  websiteUrl  String?  @db.VarChar(2048)
+  linkedinUrl String?  @db.VarChar(2048)
+  githubUrl   String?  @db.VarChar(2048)
+  portraitUrl String?  @db.VarChar(2048)
+  portraitAlt String?  @db.VarChar(200)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Managed project category. The admin UI creates, renames, reorders, and
+/// removes categories; projects hold a foreign key so names are never
+/// duplicated as free text.
+model ProjectCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique @db.VarChar(60)
+  slug      String   @unique @db.VarChar(80)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  @@index([sortOrder])
 }
 
 model Project {
@@ -48,7 +89,7 @@ model Project {
   slug          String        @unique @db.VarChar(160)
   summary       String        @db.VarChar(300)
   description   String        @db.Text  @default("")
-  category      String        @db.VarChar(60) @default("Full-stack")
+  categoryId    String
   year          String        @db.VarChar(9)
   technologies  String[]      @default([])
   liveUrl       String?       @db.VarChar(2048)
@@ -61,12 +102,53 @@ model Project {
   sortOrder   Int           @default(0)
   publishedAt DateTime?
   archivedAt  DateTime?
+  /// Future publication time; cleared by the scheduler when it runs.
+  publishAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  /// Soft-deletion marker for the trash. Null means the record is live.
+  deletedAt DateTime?
+
+  category    ProjectCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  screenshots ProjectScreenshot[]
 
   @@index([status, featured, sortOrder])
   @@index([updatedAt])
+  @@index([categoryId])
+  @@index([deletedAt])
+  @@index([publishAt])
+}
+
+/// A gallery image for the public project detail page. Images are hosted URLs;
+/// the media library does not manage uploads yet (docs/14-dynamic-content).
+model ProjectScreenshot {
+  id        String  @id @default(cuid())
+  projectId String
+  url       String  @db.VarChar(2048)
+  alt       String  @db.VarChar(200)
+  caption   String? @db.VarChar(200)
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sortOrder])
+}
+
+/// Managed skill category, ordered explicitly for the public skills grouping.
+/// Deleting a category that still has skills is rejected by the API.
+model SkillCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique @db.VarChar(60)
+  slug      String   @unique @db.VarChar(80)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skills Skill[]
+
+  @@index([sortOrder])
 }
 
 /// A technical capability shown in the portfolio, grouped by category.
@@ -74,15 +156,23 @@ model Project {
 model Skill {
   id          String   @id @default(cuid())
   name        String   @db.VarChar(60)
-  category    String   @db.VarChar(60)
+  categoryId  String
   description String?  @db.VarChar(300)
   sortOrder   Int      @default(0)
   published   Boolean  @default(true)
+  /// Future publication time; cleared by the scheduler when it runs.
+  publishAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
-  @@unique([category, name])
-  @@index([published, category, sortOrder])
+  category SkillCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([categoryId, name])
+  @@index([published, sortOrder])
+  @@index([categoryId])
+  @@index([deletedAt])
+  @@index([publishAt])
 }
 
 /// Work experience. Dates are date-only, per docs/08-database-schema.md §5.7.
@@ -98,11 +188,174 @@ model Experience {
   isCurrent      Boolean   @default(false)
   published      Boolean   @default(true)
   sortOrder      Int       @default(0)
+  /// Future publication time; cleared by the scheduler when it runs.
+  publishAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
 
   @@index([published, sortOrder])
   @@index([startDate])
+  @@index([deletedAt])
+  @@index([publishAt])
+}
+
+/// Academic history. Dates are optional because older records are sometimes
+/// incomplete, but when both are present they must be ordered.
+model Education {
+  id            String    @id @default(cuid())
+  institution   String    @db.VarChar(160)
+  qualification String    @db.VarChar(160)
+  fieldOfStudy  String?   @db.VarChar(160)
+  description   String?   @db.Text
+  startDate     DateTime? @db.Date
+  endDate       DateTime? @db.Date
+  sortOrder     Int       @default(0)
+  published     Boolean   @default(true)
+  /// Future publication time; cleared by the scheduler when it runs.
+  publishAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([published, sortOrder])
+  @@index([deletedAt])
+  @@index([publishAt])
+}
+
+/// Professional credentials. Credential identifiers and verification URLs are
+/// optional and only published when explicitly provided.
+model Certification {
+  id                  String    @id @default(cuid())
+  name                String    @db.VarChar(160)
+  issuingOrganization String    @db.VarChar(160)
+  issueDate           DateTime? @db.Date
+  expiryDate          DateTime? @db.Date
+  credentialId        String?   @db.VarChar(120)
+  credentialUrl       String?   @db.VarChar(2048)
+  sortOrder           Int       @default(0)
+  published           Boolean   @default(true)
+  /// Future publication time; cleared by the scheduler when it runs.
+  publishAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  @@index([published, sortOrder])
+  @@index([deletedAt])
+  @@index([publishAt])
+}
+
+enum MessageStatus {
+  NEW
+  READ
+  ARCHIVED
+}
+
+/// Contact form submissions. Private application data: never exposed through
+/// public endpoints, and rendered as plain text in the admin inbox.
+model ContactMessage {
+  id         String        @id @default(cuid())
+  name       String        @db.VarChar(100)
+  email      String        @db.VarChar(254)
+  subject    String?       @db.VarChar(150)
+  message    String        @db.Text
+  status     MessageStatus @default(NEW)
+  reviewedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+/// Metadata for an uploaded image. The bytes live on the media volume, never in
+/// PostgreSQL (docs/08-database-schema.md §20.1).
+model MediaAsset {
+  id               String   @id @default(cuid())
+  storageKey       String   @unique @db.VarChar(120)
+  originalFilename String   @db.VarChar(200)
+  mimeType         String   @db.VarChar(60)
+  sizeBytes        Int
+  width            Int
+  height           Int
+  /// Description for screen readers; editable in the media library.
+  altText          String?  @db.VarChar(200)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  draftFor     HomepageSettings[] @relation("HeroDraftPortrait")
+  publishedFor HomepageSettings[] @relation("HeroPublishedPortrait")
+}
+
+/// Draft and published state of the homepage hero. The primary key is fixed to
+/// "primary" so application CRUD cannot create competing homepage settings.
+model HomepageSettings {
+  id String @id @default("primary") @db.VarChar(16)
+
+  draftPortraitId        String?
+  draftPortraitAlt       String?  @db.VarChar(200)
+  draftPortraitVisible   Boolean  @default(true)
+  draftEffectEnabled     Boolean  @default(true)
+  draftTiltIntensity     Int      @default(40)
+  draftAnimationIntensity Int     @default(50)
+  draftFloatingEnabled   Boolean  @default(true)
+
+  publishedPortraitId         String?
+  publishedPortraitAlt        String?  @db.VarChar(200)
+  publishedPortraitVisible    Boolean  @default(true)
+  publishedEffectEnabled      Boolean  @default(true)
+  publishedTiltIntensity      Int      @default(40)
+  publishedAnimationIntensity Int      @default(50)
+  publishedFloatingEnabled    Boolean  @default(true)
+
+  /// Section keys from the documented catalog, in render order. Hidden sections
+  /// stay in the order list so re-showing one restores its position.
+  draftSectionOrder       String[] @default(["about", "work", "skills", "experience", "credentials", "contact"])
+  draftHiddenSections     String[] @default([])
+  draftFeaturedProjectIds String[] @default([])
+
+  publishedSectionOrder       String[] @default(["about", "work", "skills", "experience", "credentials", "contact"])
+  publishedHiddenSections     String[] @default([])
+  publishedFeaturedProjectIds String[] @default([])
+
+  publishedAt                 DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  draftPortrait     MediaAsset? @relation("HeroDraftPortrait", fields: [draftPortraitId], references: [id], onDelete: Restrict)
+  publishedPortrait MediaAsset? @relation("HeroPublishedPortrait", fields: [publishedPortraitId], references: [id], onDelete: Restrict)
+
+  @@index([draftPortraitId])
+  @@index([publishedPortraitId])
+}
+
+/// Approved public site metadata (docs/08-database-schema.md §20.3). The primary
+/// key is fixed to "primary" so application CRUD cannot create competing rows.
+/// Only an explicit allowlist of presentation fields lives here: never secrets,
+/// connection strings, or arbitrary server configuration.
+model SiteSettings {
+  id String @id @default("primary") @db.VarChar(16)
+
+  siteTitle       String  @default("") @db.VarChar(120)
+  siteDescription String  @default("") @db.VarChar(320)
+  canonicalUrl    String? @db.VarChar(2048)
+  socialImageUrl  String? @db.VarChar(2048)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Daily aggregate of public page views. Deliberately stores no visitor
+/// identifier, IP address, cookie, or referrer (docs/13 §10).
+model PageViewDaily {
+  day   DateTime @db.Date
+  path  String   @db.VarChar(60)
+  count Int      @default(0)
+
+  @@id([day, path])
+  @@index([day])
 }
 
 /// Append-only record of security-relevant administrative actions.
@@ -121,4 +374,30 @@ model AuditEvent {
 
   @@index([createdAt])
   @@index([entityType, entityId])
+}
+
+enum RevisionAction {
+  CREATED
+  UPDATED
+  DELETED
+  RESTORED
+}
+
+/// Point-in-time copy of a content record, written inside the same transaction
+/// as the change it describes (docs/13-admin-advanced-features.md §6).
+/// `snapshot` is the administrative representation of the record, never a
+/// secret or a file path.
+model ContentRevision {
+  id         String         @id @default(cuid())
+  entityType String         @db.VarChar(40)
+  entityId   String         @db.VarChar(64)
+  action     RevisionAction
+  snapshot   Json
+  adminId    String?
+  createdAt  DateTime       @default(now())
+
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
 }

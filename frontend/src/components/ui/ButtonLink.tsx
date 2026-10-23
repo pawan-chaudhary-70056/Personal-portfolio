@@ -1,18 +1,23 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 
 type ButtonVariant = 'primary' | 'outline'
 type ButtonTone = 'dark' | 'light'
 
-interface ButtonLinkProps {
-  href: string
+interface ButtonLinkBaseProps {
   children: ReactNode
   variant?: ButtonVariant
   /** Surface the button sits on, so the outline variant stays visible. */
   tone?: ButtonTone
   className?: string
-  external?: boolean
 }
+
+type ButtonLinkDestination =
+  | { to: string; href?: undefined; external?: undefined }
+  | { href: string; to?: undefined; external?: boolean }
+
+export type ButtonLinkProps = ButtonLinkBaseProps & ButtonLinkDestination
 
 const variantClasses: Record<ButtonVariant, Record<ButtonTone, string>> = {
   // Gold (#C6AA78) with charcoal text: 8.48:1 contrast on any surface.
@@ -28,26 +33,32 @@ const variantClasses: Record<ButtonVariant, Record<ButtonTone, string>> = {
 }
 
 export function ButtonLink({
-  href,
   children,
   variant = 'primary',
   tone = 'dark',
   className,
-  external = false,
+  ...destination
 }: ButtonLinkProps) {
+  const classes = cn(
+    'inline-flex min-h-12 items-center justify-center gap-2 px-6 text-body-sm font-medium tracking-wide',
+    'transition-[background-color,border-color,color] duration-150 ease-standard',
+    variantClasses[variant][tone],
+    className,
+  )
+
+  if (destination.to !== undefined) {
+    return (
+      <Link to={destination.to} className={classes}>
+        {children}
+      </Link>
+    )
+  }
+
+  const { href, external } = destination
   const externalProps = external ? { target: '_blank', rel: 'noreferrer noopener' } : {}
 
   return (
-    <a
-      href={href}
-      {...externalProps}
-      className={cn(
-        'inline-flex min-h-12 items-center justify-center gap-2 px-6 text-body-sm font-medium tracking-wide',
-        'transition-[background-color,border-color,color] duration-150 ease-standard',
-        variantClasses[variant][tone],
-        className,
-      )}
-    >
+    <a href={href} {...externalProps} className={classes}>
       {children}
     </a>
   )

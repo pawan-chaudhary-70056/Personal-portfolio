@@ -98,7 +98,7 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
       userAgent: req.get('user-agent'),
     })
 
-    res.json({ admin: { id: admin.id, email: admin.email, name: admin.name } })
+    res.json({ admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } })
   })
 
   router.post('/logout', async (req, res) => {
@@ -133,7 +133,7 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
 
     const admin = await prisma.admin.findUnique({
       where: { id: adminId },
-      select: { id: true, email: true, name: true, isActive: true },
+      select: { id: true, email: true, name: true, role: true, isActive: true },
     })
 
     if (!admin || !admin.isActive) {
@@ -141,7 +141,7 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
       throw unauthorized('Not signed in.')
     }
 
-    res.json({ admin: { id: admin.id, email: admin.email, name: admin.name } })
+    res.json({ admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } })
   })
 
   return router

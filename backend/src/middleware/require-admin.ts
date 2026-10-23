@@ -23,7 +23,7 @@ export const requireAdmin: RequestHandler = async (req, _res, next) => {
 
     const admin = await prisma.admin.findUnique({
       where: { id: adminId },
-      select: { id: true, email: true, name: true, isActive: true },
+      select: { id: true, email: true, name: true, role: true, isActive: true },
     })
 
     if (!admin || !admin.isActive) {
@@ -31,7 +31,7 @@ export const requireAdmin: RequestHandler = async (req, _res, next) => {
       throw unauthorized('Your session is no longer valid. Please sign in again.')
     }
 
-    req.admin = { id: admin.id, email: admin.email, name: admin.name }
+    req.admin = { id: admin.id, email: admin.email, name: admin.name, role: admin.role }
     next()
   } catch (error) {
     next(error)

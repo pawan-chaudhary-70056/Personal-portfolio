@@ -988,7 +988,238 @@ The backend API is ready for release when:
 - Configuration and secrets are managed safely.
 - Documentation matches the actual repository.
 
-## 26. Related Documentation
+## 26. Hero Portrait API (Implemented)
+
+The homepage portrait uses a draft/publish workflow. Binary files are stored outside PostgreSQL in the configured media root; the database stores metadata and references only.
+
+### 26.1 Public endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/hero` | Published portrait and effect settings |
+| `GET` | `/api/media/hero-portrait/:id` | Streams the published portrait bytes |
+
+```json
+{
+  "hero": {
+    "portrait": {
+      "url": "/api/media/hero-portrait/cmxyz123",
+      "alt": "Portrait of the portfolio owner",
+      "width": 1200,
+      "height": 1500,
+      "mimeType": "image/jpeg"
+    },
+    "effect": {
+      "enabled": true,
+      "tiltIntensity": 40,
+      "animationIntensity": 50,
+      "floating": true
+    }
+  }
+}
+```
+
+`portrait` is `null` when no portrait is published or when visibility is disabled. If the stored bytes are unavailable, the image request returns 404 and the homepage renders its fallback; the JSON contract is unchanged. Draft uploads, draft alt text, and draft effect values are never exposed. Only the id that matches the currently published portrait streams bytes; every other id returns 404, including when visibility is disabled. Published bytes are immutable and served with `Cache-Control: public, max-age=31536000, immutable`, so a new publication changes the URL and bypasses stale caches. `/api/hero` itself is not cached.
+
+### 26.2 Administrative endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/homepage` | Draft and published state, change indicator, upload limits |
+| `PATCH` | `/api/admin/homepage` | Update draft alt text, visibility, and effect settings |
+| `POST` | `/api/admin/homepage/portrait` | Upload or replace the draft portrait (multipart field `file`) |
+| `DELETE` | `/api/admin/homepage/portrait` | Clear the draft portrait; published state is untouched |
+| `POST` | `/api/admin/homepage/publish` | Copy the draft state to the published state |
+| `GET` | `/api/admin/media/:id/file` | Stream a stored asset to a signed-in administrator |
+| `DELETE` | `/api/admin/media/:id` | Delete an unreferenced asset; 409 while referenced |
+
+`PATCH` accepts `portraitAlt`, `portraitVisible`, `effectEnabled`, `tiltIntensity`, `animationIntensity`, and `floatingEnabled` (intensities are integers from 0 to 100), plus the homepage layout fields documented in §27.1.
+
+### 26.3 Upload validation
+
+- `multipart/form-data`, one file in the `file` field. JSON parsing does not apply.
+- The configured maximum size (`MEDIA_MAX_BYTES`, default 8 MiB) is enforced while reading the request; oversized files return 413.
+- The client filename and declared MIME type are ignored. The format is detected from magic bytes.
+- Allowlist: JPEG, PNG, and WebP. SVG, GIF, executables, and archives are rejected with 400.
+- Width and height are parsed from the file header. More than 8000 px on either edge or more than 30 megapixels is rejected.
+- Storage keys are generated UUIDs plus the detected extension; no request value is used in a filesystem path.
+- Uploads are rate limited per IP and audited (`MEDIA_UPLOADED`); replacement, removal, draft updates, publication, and media deletion are audited too.
+
+### 26.4 Publishing rules
+
+- Publishing a visible draft portrait requires non-empty alt text; otherwise the request fails with a field-level 400 referencing `portraitAlt`.
+- Publishing copies the portrait reference, alt text, visibility, and all effect values in one transaction, sets `publishedAt`, and writes `HOMEPAGE_PUBLISHED`.
+- Clearing the draft portrait and publishing restores the built-in visual fallback.
+- Superseded assets are removed only after neither the draft nor the published state references them. File removal failures are logged and never fail the request.
+- Failed uploads leave the existing draft and published state unchanged.
+
+## 27. Site Settings and Homepage Layout API (Implemented)
+
+The site metadata and the homepage section layout share the settings endpoints documented in §11. All routes require an authenticated administrator and a CSRF token on writes.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/homepage` | Draft/published layout and hero state, section catalog, featured candidates, limits |
+| `PATCH` | `/api/admin/homepage` | Update draft hero fields, `sectionOrder`, `hiddenSections`, and `featuredProjectIds` |
+| `GET` | `/api/admin/settings` | Editable site metadata |
+| `PATCH` | `/api/admin/settings` | Update allowlisted site metadata |
+| `GET` | `/api/portfolio/homepage` | Published layout, featured project references, and approved site metadata |
+
+### 27.1 Homepage layout
+
+`PATCH /api/admin/homepage` accepts the §26 hero fields plus:
+
+- `sectionOrder`: every section key exactly once, from `about`, `work`, `skills`, `experience`, `credentials`, `contact`. Partial orders and unknown keys return a field-level 400.
+- `hiddenSections`: known, unique section keys. Hidden sections keep their position in `sectionOrder`.
+- `featuredProjectIds`: up to 12 unique ids of **published** projects, in display order. Draft, archived, unknown, or duplicate ids return a field-level 400.
+
+`GET /api/portfolio/homepage` returns only published values; before the first homepage publication it returns the default order with every section visible and no featured references.
+
+```json
+{
+  "homepage": {
+    "sections": [
+      { "key": "about", "visible": true },
+      { "key": "work", "visible": true },
+      { "key": "contact", "visible": false }
+    ],
+    "featuredProjects": [
+      { "id": "cmxyz123", "title": "Atlas dashboard", "slug": "atlas-dashboard" }
+    ],
+    "site": {
+      "siteTitle": "Mark Atelier",
+      "siteDescription": "Selected engineering and design work.",
+      "canonicalUrl": "https://example.com",
+      "socialImageUrl": "https://example.com/og.png"
+    }
+  }
+}
+```
+
+Featured references are re-checked on every read: a project that was archived or unpublished after publication is omitted rather than returned as a broken link. Publishing also drops references that are no longer published.
+
+### 27.2 Site settings
+
+`PATCH /api/admin/settings` accepts only `siteTitle` (≤120), `siteDescription` (≤320), `canonicalUrl`, and `socialImageUrl`; the two URLs must be absolute http(s) values or empty. Unknown fields, including infrastructure keys such as `databaseUrl`, are rejected by strict validation. Settings are public immediately and every save is audited.
+
+## 28. Media Library API (Implemented)
+
+All routes require a signed-in administrator; writes also require the CSRF token. Responses never include storage keys or filesystem paths.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/media` | Paginated library listing |
+| `POST` | `/api/admin/media` | Upload one image (multipart field `file`) |
+| `GET` | `/api/admin/media/:id` | Read one asset's metadata |
+| `GET` | `/api/admin/media/:id/file` | Stream the stored bytes (`private, no-store`) |
+| `PATCH` | `/api/admin/media/:id` | Update `altText` |
+| `DELETE` | `/api/admin/media/:id` | Delete an unreferenced asset; `409` while referenced |
+
+### 28.1 Listing
+
+`GET /api/admin/media?search=&page=1&pageSize=20`
+
+- `search` (≤100 characters) matches the original filename or alt text, case-insensitively.
+- `page` ≥ 1; `pageSize` 1–50, default 20. Unknown parameters and out-of-range values return `400 validation_error`.
+- Ordered newest first. The response is `{ items, total, page, pageSize, pageCount }`, where each item is `{ id, url, originalFilename, mimeType, sizeBytes, width, height, altText, createdAt, updatedAt, referenced }`. `url` is the session-protected file route, not a public URL.
+- `referenced` is `true` when the homepage draft or published portrait uses the asset, which is exactly the condition that blocks deletion.
+
+### 28.2 Upload
+
+Same validation, limits, and error codes as the portrait upload in §26.3: detected from magic bytes, JPEG/PNG/WebP only, configured byte cap (`413 file_too_large`), dimension limits, generated UUID storage key, `400 invalid_image` for anything else. The original filename is truncated to 200 characters and stored as metadata only. Uploads are rate limited per IP (`MEDIA_UPLOAD_LIMIT_PER_HOUR`, default 20 per hour) and audited as `MEDIA_UPLOADED`.
+
+### 28.3 Editing and deletion
+
+- `PATCH` accepts only `altText` (≤200 characters, or `null`/empty to clear). Any other field is rejected; MIME type, size, dimensions, and filename are facts about the stored bytes and are never writable.
+- `DELETE` returns `409 conflict` while the homepage references the asset. Otherwise the row is deleted inside a transaction with a `MEDIA_DELETED` audit event, then the file is removed. A missing file is ignored; the row is already gone.
+- Unknown ids return `404 not_found` for metadata, bytes, update, and delete alike.
+
+## 29. Bulk Actions, Trash, and Revisions API (Implemented)
+
+All routes require a signed-in administrator; writes also require the CSRF token. `type` is one of `project`, `skill`, `experience`, `education`, or `certification`.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/admin/bulk/:type` | Apply one action to up to 50 records |
+| `GET` | `/api/admin/trash` | Paginated trash, optionally filtered by `type` |
+| `POST` | `/api/admin/trash/restore` | Restore 1–50 selected records across types |
+| `POST` | `/api/admin/trash/purge` | Permanently delete 1–50 selected records across types |
+| `POST` | `/api/admin/trash/:type/:id/restore` | Restore a trashed record |
+| `DELETE` | `/api/admin/trash/:type/:id` | Permanently delete a trashed record |
+| `GET` | `/api/admin/revisions` | Paginated revision history |
+| `GET` | `/api/admin/revisions/:id` | One revision with its snapshot |
+| `POST` | `/api/admin/revisions/:id/restore` | Re-apply a snapshot |
+
+### 29.1 Bulk actions
+
+```json
+{ "action": "publish", "ids": ["...", "..."] }
+```
+
+- `action` is `publish`, `unpublish`, or `delete`; `ids` holds 1–50 unique ids. Unknown fields, an empty list, or an unsupported action return `400 validation_error`.
+- The whole request runs in one transaction: if any id is missing or already in the trash, nothing changes (`404` / `409`).
+- Publishing a project sets `status = PUBLISHED` and preserves the original `publishedAt`; unpublishing returns it to `DRAFT`. The other collections toggle `published`.
+- Each record gets its own audit event with `metadata.bulk = true`, plus a revision snapshot.
+- Response: `{ "type": "project", "action": "publish", "updated": 2 }`.
+
+### 29.2 Trash
+
+Deleted content is soft-deleted (`deletedAt`), excluded from every admin list, public response, and overview count. The original name, slug, and skill/category uniqueness stay reserved until the record is purged.
+
+- Trash items: `{ type, entityType, id, title, subtitle, deletedAt, published, status? }`, newest deletion first, merged across types and paginated in memory (each collection contributes at most 200 rows).
+- Restore clears `deletedAt`, writes `<ENTITY>_RESTORED`, and records a `RESTORED` revision. Restoring a live record returns `409`.
+- Permanent deletion requires a trashed record, deletes dependants (project screenshots) by cascade, and writes `<ENTITY>_PURGED`. Purging a live record returns `409`.
+- Bulk restore and purge take `{ "items": [{ "type": "project", "id": "..." }] }` with 1–50 entries; each entry carries its type because the trash mixes collections. Duplicate entries are collapsed. The whole request runs in one transaction: if any record is missing (`404`) or not in the trash (`409`), nothing changes. Responses are `{ "restored": 2 }` and `{ "purged": 2 }`, and every record keeps its individual audit event and revision.
+- Categories that still have trashed projects or skills cannot be deleted; the API asks for a restore or purge first.
+
+### 29.3 Revisions
+
+Every create, update, bulk change, trash, restore, and revision restore stores a `ContentRevision` row in the same transaction as the change.
+
+- `GET /api/admin/revisions?entityType=Project&entityId=...&page=1&pageSize=20` returns `{ items, total, page, pageSize, pageCount }`, newest first. Items omit the snapshot.
+- `GET /api/admin/revisions/:id` returns the snapshot: the administrative representation of the record at that time (no secrets, no storage keys). It also returns `previous`: the revision immediately before this one for the same entity (`{ id, action, createdAt, snapshot }`), or `null` for the first snapshot. The dashboard diffs the two field by field; identical snapshots yield an empty diff.
+- `POST /api/admin/revisions/:id/restore` re-applies the snapshot through the normal update path, so validation runs again and a new revision is stored. It writes `REVISION_RESTORED` with the revision id.
+- Restoring while the record is in the trash returns `409`; a purged record returns `404`.
+
+## 30. Administrators, Roles, and Scheduled Publishing API (Implemented)
+
+### 30.1 Roles
+
+Every admin route requires a signed-in administrator. Owner-only routes additionally require `req.admin.role === 'OWNER'`; an editor session receives `403 forbidden`. Login and session responses include the role.
+
+| Role | Scope |
+|---|---|
+| `OWNER` | Everything, plus administrators, site settings, sessions, health, analytics, and the activity log |
+| `EDITOR` | Content, media, inbox, bulk actions, trash, revisions, scheduling, and the overview |
+
+### 30.2 Administrator accounts (owner only)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/administrators` | List accounts without password hashes |
+| `POST` | `/api/admin/administrators` | Create an owner or editor account |
+| `PATCH` | `/api/admin/administrators/:id` | Change name, role, or active status |
+| `POST` | `/api/admin/administrators/:id/password` | Reset a password and revoke that account’s sessions |
+
+- Create body: `{ name, email, password, role }`; `role` defaults to `EDITOR`, and passwords require at least 12 characters. Duplicate emails return `409 conflict`.
+- Update body accepts any of `name`, `role`, `isActive` and requires at least one. Demoting or deactivating the last active owner returns `409`, as does deactivating your own account.
+- Deactivation and password resets delete that account’s `session` rows immediately. Every change writes `ADMIN_CREATED`, `ADMIN_UPDATED`, or `ADMIN_PASSWORD_RESET`.
+- Responses never include `passwordHash`.
+
+### 30.3 Scheduled publishing
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `PATCH` | `/api/admin/schedule/:type/:id` | Set or clear `publishAt` |
+| `GET` | `/api/admin/scheduling` | Unpublished, live records with their schedule |
+
+- Body: `{ "publishAt": "2026-11-01T09:00:00.000Z" }`, or `null` to cancel. `type` is one of the five content types.
+- Throws `400 validation_error` for past or malformed times, `409` for published or trashed records, and `404` for unknown ones.
+- Writes `<ENTITY>_SCHEDULED` or `<ENTITY>_SCHEDULE_CANCELLED` and a revision snapshot.
+- The API process runs a scheduler every 30 seconds. `publishDueContent` claims each due row with a conditional update, so concurrent instances publish a record once, clear `publishAt`, and write a single `scheduled` audit event and revision.
+- `GET /api/admin/scheduling` returns `{ items: [{ type, id, title, subtitle, publishAt }] }`; each collection contributes at most 50 rows.
+
+## 31. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

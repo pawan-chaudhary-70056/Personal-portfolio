@@ -1,9 +1,16 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { AdminSkill, SkillPayload } from '@/@types/admin'
+import type { AdminSkill, AdminSkillCategory, SkillPayload } from '@/@types/admin'
+import { listSkillCategories } from '@/api/categories.api'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { FormField } from '@/components/forms/FormField'
-import { checkboxClassName, inputClassName, textareaClassName } from '@/components/ui/fieldStyles'
+import {
+  checkboxClassName,
+  inputClassName,
+  selectClassName,
+  textareaClassName,
+} from '@/components/ui/fieldStyles'
+import { useApiResource } from '@/hooks/useApiResource'
 import { toSkillFormValues, toSkillPayload, type SkillFormValues } from '@/utils/contentPayload'
 
 interface SkillFormProps {
@@ -26,6 +33,13 @@ export function SkillForm({
   cancelHref,
 }: SkillFormProps) {
   const [values, setValues] = useState<SkillFormValues>(() => toSkillFormValues(skill))
+
+  const fetchCategories = useCallback((signal: AbortSignal) => listSkillCategories(signal), [])
+  const { data: categories } = useApiResource<AdminSkillCategory[]>(fetchCategories, {
+    errorMessage: 'Categories could not be loaded.',
+  })
+  const categoryOptions = categories ?? []
+  const currentCategoryKnown = categoryOptions.some((option) => option.name === values.category)
 
   function update<K extends keyof SkillFormValues>(key: K, value: SkillFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }))
@@ -62,14 +76,30 @@ export function SkillForm({
           hint="Groups related skills, for example Security or Development."
           error={fieldErrors.category}
         >
-          <input
+          <select
             id="category"
             value={values.category}
             onChange={(event) => update('category', event.target.value)}
             aria-invalid={invalid('category')}
             aria-describedby={describedBy('category')}
-            className={inputClassName}
-          />
+            className={selectClassName}
+          >
+            <option value="">Select a category…</option>
+            {currentCategoryKnown || !values.category ? null : (
+              <option value={values.category}>{values.category}</option>
+            )}
+            {categoryOptions.map((category) => (
+              <option key={category.id} value={category.name}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+          <Link
+            to="/admin/skill-categories"
+            className="mt-2 inline-block text-caption text-charcoal/70 underline underline-offset-4"
+          >
+            Manage categories
+          </Link>
         </FormField>
       </div>
 

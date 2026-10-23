@@ -12,7 +12,7 @@ let passwordHash = ''
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Project", "AuditEvent", "Admin", "session", "Skill", "Experience" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "MediaAsset", "HomepageSettings", "SiteSettings", "ProjectCategory", "SkillCategory", "Project", "AuditEvent", "Admin", "session", "Skill", "Experience", "Education", "Certification", "Profile" RESTART IDENTITY CASCADE',
   )
 }
 
@@ -397,6 +397,8 @@ describe('experience', () => {
     expect(overview.body.content).toEqual({
       skills: { total: 2, published: 1 },
       experience: { total: 1, published: 1 },
+      education: { total: 0, published: 0 },
+      certifications: { total: 0, published: 0 },
     })
   })
 

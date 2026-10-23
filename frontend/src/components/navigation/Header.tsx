@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
+import { Link, NavLink } from 'react-router-dom'
 import { Container } from '@/components/layout/Container'
 import { MobileMenu } from '@/components/navigation/MobileMenu'
 import { contactNavigation, primaryNavigation } from '@/content/navigation'
-import { profile } from '@/content/portfolio'
 import { useScrolled } from '@/hooks/useScrolled'
 import { cn } from '@/utils/cn'
 
 const MOBILE_MENU_ID = 'mobile-navigation'
+/** Static brand wordmark; the owner's name is rendered in the footer. */
+const WORDMARK = 'Portfolio'
 
 export function Header() {
   const scrolled = useScrolled(16)
@@ -28,29 +30,40 @@ export function Header() {
       )}
     >
       <Container className="flex h-20 items-center justify-between gap-6">
-        <a
-          href="#top"
+        <Link
+          to="/"
           className="text-sm font-medium tracking-[0.3em] text-ivory uppercase transition-colors duration-150 ease-standard hover:text-gold"
         >
-          {profile.wordmark}
-        </a>
+          {WORDMARK}
+        </Link>
 
-        <nav aria-label="Primary" className="hidden items-center gap-10 md:flex">
+        <nav aria-label="Primary" className="hidden items-center gap-8 md:flex">
           <ul className="flex items-center gap-8">
             {primaryNavigation.map((item) => (
-              <li key={item.href}>
-                <a href={item.href} className="nav-link text-ivory/75 hover:text-ivory">
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) =>
+                    cn(
+                      'nav-link transition-colors duration-150 ease-standard',
+                      isActive ? 'text-gold' : 'text-ivory/75 hover:text-ivory',
+                    )
+                  }
+                >
                   {item.label}
-                </a>
+                </NavLink>
               </li>
             ))}
           </ul>
-          <a
-            href={contactNavigation.href}
-            className="nav-link text-gold"
+          <NavLink
+            to={contactNavigation.to}
+            className={({ isActive }) =>
+              cn('nav-link text-gold', isActive && 'text-ivory')
+            }
           >
             {contactNavigation.label}
-          </a>
+          </NavLink>
         </nav>
 
         <button

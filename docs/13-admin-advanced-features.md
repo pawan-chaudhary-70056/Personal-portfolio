@@ -129,6 +129,8 @@ Depending on content type and implementation, bulk actions may include:
 
 Bulk operations must not bypass individual record validation or publication rules.
 
+Implemented scope: the content lists support bulk publish, unpublish, and move-to-trash, while the trash page supports bulk restore and bulk permanent deletion across all five content types. Every selection is validated server-side in one transaction.
+
 ### 5.2 Interaction Requirements
 
 1. The administrator selects records using checkboxes.
@@ -523,17 +525,14 @@ If a scheduled publishing job fails, the system must retain a recoverable state 
 
 Do not rely solely on a browser tab being open to trigger scheduled publishing.
 
-## 13. Multiple Administrators and Roles
+## 13. Multiple Administrators and Roles (Implemented)
 
-Multiple administrator roles are optional. If the application supports only one administrator, do not display an incomplete role-management interface.
+The dashboard implements two roles, stored on the `Admin` model and read from the database on every request; the client never supplies a role.
 
-A future role model could include:
+- **Owner:** manages administrators and security-sensitive settings, including site settings, sessions, health, analytics, and the activity log.
+- **Editor:** manages portfolio content, media, the inbox, bulk actions, the trash, revisions, and scheduling.
 
-- **Owner:** manages administrators and security-sensitive settings.
-- **Editor:** manages portfolio content and media.
-- **Viewer:** reads permitted administrative information without making changes.
-
-The final role names and permissions must be explicitly defined before implementation.
+Owner-only endpoints are mounted behind `requireOwner`. Editors receive `403 forbidden`, and the dashboard hides those links and redirects their routes. Login and session responses include `role` so the interface can adapt, but hiding a control is never treated as authorization. At least one active owner always remains: demoting or deactivating the last one returns `409`, as does deactivating your own account. Account changes, role changes, and password resets are audited and revoke the affected sessions where required.
 
 ### 13.1 Authorization Requirements
 
@@ -764,7 +763,36 @@ An advanced feature is complete only when:
 - [ ] Operational requirements and retention policies are defined.
 - [ ] No unimplemented feature is presented as available.
 
-## 21. Final Principle
+## 21. Implemented: Bulk Actions, Trash, and Revision History
+
+The core administrative features from §3.1 are now complete for projects, skills, experience, education, and certifications.
+
+### 21.1 Bulk actions (§5)
+
+- Endpoint: `POST /api/admin/bulk/:type` with `{ action, ids }`, 1–50 ids, action `publish` / `unpublish` / `delete`.
+- The transaction is atomic: every id must exist and be live, otherwise nothing changes. Results are all-or-nothing rather than partial success.
+- Each record is authorized by the admin session, validated, audited individually with `metadata.bulk = true`, and snapshotted as a revision.
+- UI: select-all and per-row checkboxes plus a toolbar with the selected count; deletion is confirmed.
+
+### 21.2 Soft deletion and recovery (§7)
+
+- `deletedAt` on the five content models; all admin and public read paths exclude trashed rows.
+- Restore keeps the original values, visibility, and gallery. Permanent deletion is available only from the trash and is confirmed.
+- Retention: no automatic purge job. Trashed records live until an administrator deletes them permanently, which keeps recovery predictable at the cost of manual housekeeping.
+- Uniqueness (project slug, skill name per category) stays reserved while trashed, which prevents a restore from silently overwriting a newer record. The API reports the conflict and the trash page explains it.
+
+### 21.3 Revision history (§6)
+
+- `ContentRevision` stores a JSON snapshot per change with the action, editor, and timestamp; history is append-only.
+- Listing filters by entity type and entity id, with pagination.
+- Restore re-applies the snapshot through the same service update used by the admin forms, so validation, publication rules, audit events, and a new revision all apply.
+- The interface shows the raw snapshot rather than a field-by-field diff; a structured comparison remains optional per §3.2.
+
+### 21.4 Still optional
+
+Traffic analytics, application health and backup status, scheduled publishing, multiple administrator roles, and structured revision comparison remain unimplemented and are not presented as available in the dashboard.
+
+## 22. Final Principle
 
 The Admin Dashboard must remain secure, predictable, and maintainable as the portfolio grows.
 

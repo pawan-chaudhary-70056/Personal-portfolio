@@ -756,7 +756,17 @@ The design system is ready for implementation when:
 11. Design tokens can be implemented consistently in the frontend.
 12. Visual quality can be reviewed against a repeatable checklist.
 
-## 23. Related Documentation
+## 23. Hero Portrait Frame (Implemented)
+
+- Aspect ratio `4 / 5` on every breakpoint, with the frame never wider than `26rem`.
+- Frame treatment: a 1px gold hairline at low opacity, a charcoal-to-charcoal-900 vertical gradient behind the image, and a soft offset shadow. No bright borders, no neon, no glassmorphism.
+- The image fills the frame with `object-cover`; the visible focal area sits slightly above centre so a head-and-shoulders portrait is not cropped at the jaw.
+- Fallback panel: same frame, centred serif monogram (up to two initials from the display name), caption-sized gold label “Portrait”. It must look intentional rather than like a broken image.
+- Optional depth cue: a second hairline offset 12–18px down-right, at gold/25, to suggest layering without extra imagery.
+- Caption/label typography uses `text-caption` with the standard `0.16em` tracking; body copy is never overlaid on the portrait.
+- On light surfaces the frame uses `gold-ink`; the hero stays on the charcoal surface, where `gold` is safe.
+
+## 24. Related Documentation
 
 - [`README.md`](../README.md) — Project overview and setup.
 - [`01-project-overview.md`](./01-project-overview.md) — Project scope and goals.

@@ -1,5 +1,11 @@
 import type { AdminProject, ProjectPayload, ProjectStatus } from '@/@types/admin'
 
+export interface ScreenshotFormValues {
+  url: string
+  alt: string
+  caption: string
+}
+
 export interface ProjectFormValues {
   title: string
   slug: string
@@ -12,6 +18,7 @@ export interface ProjectFormValues {
   repositoryUrl: string
   imageUrl: string
   imageAlt: string
+  screenshots: ScreenshotFormValues[]
   status: ProjectStatus
   featured: boolean
   sortOrder: string
@@ -30,6 +37,12 @@ export function toFormValues(project?: AdminProject): ProjectFormValues {
     repositoryUrl: project?.repositoryUrl ?? '',
     imageUrl: project?.imageUrl ?? '',
     imageAlt: project?.imageAlt ?? '',
+    screenshots:
+      project?.screenshots.map((screenshot) => ({
+        url: screenshot.url,
+        alt: screenshot.alt,
+        caption: screenshot.caption ?? '',
+      })) ?? [],
     status: project?.status ?? 'DRAFT',
     featured: project?.featured ?? false,
     sortOrder: String(project?.sortOrder ?? 0),
@@ -39,6 +52,18 @@ export function toFormValues(project?: AdminProject): ProjectFormValues {
 export function toProjectPayload(values: ProjectFormValues): ProjectPayload {
   const slug = values.slug.trim()
   const parsedSortOrder = Number.parseInt(values.sortOrder, 10)
+
+  // Fully empty rows are discarded so the server only receives intended
+  // screenshots; partially filled rows are rejected by client and server.
+  const screenshots = values.screenshots
+    .map((screenshot) => ({
+      url: screenshot.url.trim(),
+      alt: screenshot.alt.trim(),
+      caption: screenshot.caption.trim() || null,
+    }))
+    .filter(
+      (screenshot) => screenshot.url || screenshot.alt || screenshot.caption !== null,
+    )
 
   return {
     title: values.title.trim(),
@@ -55,6 +80,7 @@ export function toProjectPayload(values: ProjectFormValues): ProjectPayload {
     repositoryUrl: values.repositoryUrl.trim() || null,
     imageUrl: values.imageUrl.trim() || null,
     imageAlt: values.imageAlt.trim() || null,
+    screenshots,
     status: values.status,
     featured: values.featured,
     sortOrder: Number.isNaN(parsedSortOrder) ? 0 : parsedSortOrder,

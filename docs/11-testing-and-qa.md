@@ -782,6 +782,20 @@ Approved exceptions must have a documented reason, responsible reviewer, and rem
 
 The actual CI configuration is the source of truth for which checks currently run.
 
+### 24.1 Implemented workflow
+
+`.github/workflows/ci.yml` runs on push to `main` and on pull requests, with `contents: read` permissions and a concurrency group that cancels superseded runs.
+
+| Job | Steps |
+|---|---|
+| Backend | `npm ci` → `prisma generate` → `tsc --noEmit` (source and tests) → `vitest run` → `tsc` build |
+| Frontend | `npm ci` → `oxlint` → `tsc -b && vite build` |
+| Containers | `docker build` for `backend/` and `frontend/` |
+
+The backend job starts a `postgres:18-alpine` service on port `5433` with the credentials in `backend/tests/config.ts`, so the API suite runs against the same isolated database a developer would use. `tests/global-setup.ts` applies the committed migrations; the suite truncates tables between cases and uses `tests/.tmp-media` for uploads.
+
+Not in CI: the Playwright scripts `verify:homepage` and `verify:admin`. They need a running stack, a seeded administrator, and a browser, so they are run locally before a release (see §28). No formatting check is configured; lint and type checking are the enforced gates.
+
 ## 25. Defect Management
 
 Each significant defect should include:
@@ -868,7 +882,52 @@ A feature is complete when:
 
 The application is release-ready only when all mandatory quality gates pass and required deployment checks are complete.
 
-## 28. Related Documentation
+## 28. Hero Portrait Test Coverage (Implemented)
+
+`backend/tests/hero.test.ts` covers the upload and publication contract:
+
+- Unauthenticated upload, draft update, publish, file read, and delete are rejected; a signed-in request without the CSRF header is rejected with 403.
+- A valid PNG upload is stored, returns detected metadata, and becomes the draft without touching the published state.
+- Text, SVG, a fake image whose bytes do not match its declared type, and a file over the size limit are rejected; the previous draft and published state remain intact.
+- Draft alt text, visibility, and effect values are validated (alt required for a visible published portrait, intensities 0–100).
+- Before publishing, `/api/hero` still returns the previous published portrait (or `null`); the draft asset id returns 404 from the public media route.
+- After publishing, `/api/hero` returns the new URL and effect settings, and the published media route returns the bytes with an image content type and immutable caching.
+- Hiding the portrait or removing it and publishing restores the fallback.
+- Deleting a referenced asset returns 409; an unreferenced asset is removed from the database and the media root.
+- Replacing a portrait removes the superseded file only after it is unreferenced.
+
+The frontend is verified with `npm run verify:homepage` (portrait rendering, fallback, reduced motion, no layout overflow) and `npm run verify:admin` (upload, draft preview, save, publish, remove). Both scripts also run axe WCAG A/AA audits on the affected pages.
+
+## 29. Bulk, Trash, and Revision Coverage (Implemented)
+
+`backend/tests/content-admin.test.ts` adds 15 integration tests against the real database and session stack:
+
+- **Bulk actions:** authentication and CSRF enforcement, multi-record publish and unpublish, atomic rollback when one selection is trashed, payload validation (empty list, 51 ids, unknown action, unknown type), and bulk audit metadata.
+- **Trash:** trashed projects disappear from the admin detail read and public API while appearing in the trash, restore returns the published state, restore/purge reject live records, purge removes the row, and a slug stays reserved until purge. Bulk restore and bulk purge work across content types, collapse duplicate entries, refuse the whole transaction when any record is live or missing, write one audit event and revision per record, and reject malformed payloads (empty or oversized lists, unknown types, unknown fields, missing CSRF).
+- **Revisions:** every create and update stores a snapshot, listing filters by entity type and id, snapshot detail is available and includes the previous snapshot for the same entity (or `null` for the first), restore re-applies old values (including `featured`), restore adds a third revision and a `REVISION_RESTORED` audit event, and restore is refused while the record is in the trash.
+
+`tests/screenshots.test.ts` now asserts the trash behaviour: deleting a project keeps its gallery restorable, and permanent deletion cascades the gallery rows.
+
+End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the trash page, restores a trashed project, checks the bulk-selection toolbar appears and clears, permanently deletes from the trash, and loads the revision history, opens a snapshot to confirm the field-level diff and raw-snapshot control. It also creates two fixture projects, trashes them through the API, selects both in the trash, restores them with the bulk toolbar, verifies they are available again, trashes them again, and confirms that bulk permanent deletion names the selected count, reports success, and removes both records. Bulk publish/unpublish itself is intentionally left to the backend suite so the script never changes seeded portfolio content.
+
+## 30. Administrator Roles and Scheduled Publishing Coverage (Implemented)
+
+`backend/tests/administrators.test.ts` covers owner-only account management:
+
+- Listing returns accounts without password hashes or plaintext passwords; creating an editor writes an `ADMIN_CREATED` audit event; duplicate emails return 409 and short passwords return 400.
+- Role changes promote and demote accounts, the demoted account immediately loses oversight access but keeps content access, and demoting or deactivating the last active owner returns 409.
+- Deactivating an account revokes its sessions immediately, blocks sign-in, and reactivation restores access.
+- Password resets revoke existing sessions, accept the new password, reject short passwords, return 404 for unknown accounts, and write `ADMIN_PASSWORD_RESET`.
+
+`backend/tests/oversight.test.ts` adds a role test: an editor can sign in, read the overview, and create and read projects, but every owner-only endpoint (health, analytics, activity log, settings, sessions, administrators) returns 403, and editors cannot change administrator roles.
+
+`backend/tests/scheduling.test.ts` covers scheduled publishing:
+
+- Authentication and CSRF are enforced, a future schedule is stored, listed, and shown in the audit log, and cancelling clears it.
+- Past times and malformed timestamps return 400; published and trashed records return 409; unknown records return 404.
+- `publishDueContent` promotes due records exactly once, clears the schedule, publishes the project, makes it visible on the public API, and writes one `scheduled` audit event per record.
+
+## 31. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

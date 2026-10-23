@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { AdminProject, ProjectListResponse, ProjectStatus } from '@/@types/admin'
+import type {
+  AdminProject,
+  AdminProjectCategory,
+  ProjectListResponse,
+  ProjectStatus,
+} from '@/@types/admin'
 import { ApiError } from '@/api/client'
+import { listProjectCategories } from '@/api/categories.api'
 import { deleteProject, listProjects, updateProject } from '@/api/projects.api'
 import { useSession } from '@/auth/useSession'
+import { BulkActionsBar } from '@/components/admin/BulkActionsBar'
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog'
 import { StatusBadge } from '@/components/admin/StatusBadge'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { inputClassName, selectClassName } from '@/components/ui/fieldStyles'
 import { useApiResource } from '@/hooks/useApiResource'
+import { useBulkContentActions } from '@/hooks/useBulkContentActions'
+import { useBulkSelection } from '@/hooks/useBulkSelection'
 import { formatDateTime } from '@/utils/formatDate'
 import { setPageMetadata } from '@/utils/metadata'
 
@@ -20,6 +29,7 @@ export function AdminProjectsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [status, setStatus] = useState<ProjectStatus | ''>('')
+  const [category, setCategory] = useState('')
   const [page, setPage] = useState(1)
 
   const [notice, setNotice] = useState<string | null>(null)
@@ -40,10 +50,18 @@ export function AdminProjectsPage() {
     return () => clearTimeout(timer)
   }, [search])
 
+  const fetchCategories = useCallback((signal: AbortSignal) => listProjectCategories(signal), [])
+  const { data: categories } = useApiResource<AdminProjectCategory[]>(fetchCategories, {
+    errorMessage: 'Categories could not be loaded.',
+  })
+
   const fetcher = useCallback(
     (signal: AbortSignal) =>
-      listProjects({ search: debouncedSearch, status, page, pageSize: PAGE_SIZE }, signal),
-    [debouncedSearch, status, page],
+      listProjects(
+        { search: debouncedSearch, status, category, page, pageSize: PAGE_SIZE },
+        signal,
+      ),
+    [debouncedSearch, status, category, page],
   )
 
   const handleUnauthorized = useCallback(
@@ -104,7 +122,7 @@ export function AdminProjectsPage() {
 
     try {
       await deleteProject(deleteTarget.id)
-      setNotice(`“${deleteTarget.title}” was permanently deleted.`)
+      setNotice(`“${deleteTarget.title}” was moved to the trash.`)
       setDeleteTarget(null)
 
       if (data && data.items.length === 1 && page > 1) {
@@ -123,6 +141,17 @@ export function AdminProjectsPage() {
   }
 
   const items = data?.items ?? []
+  const selection = useBulkSelection(items.map((project) => project.id))
+  const bulk = useBulkContentActions({
+    type: 'project',
+    noun: 'project',
+    selectedIds: selection.selectedIds,
+    clearSelection: selection.clear,
+    reload,
+    onNotice: setNotice,
+    onError: setActionError,
+    onUnauthorized: handleUnauthorized,
+  })
   const loading = loadStatus === 'loading'
   const showEmpty = !loading && items.length === 0
   const error = actionError ?? (loadStatus === 'error' ? loadError : null)
@@ -201,7 +230,42 @@ export function AdminProjectsPage() {
             <option value="ARCHIVED">Archived</option>
           </select>
         </div>
+
+        <div className="sm:w-56">
+          <label
+            htmlFor="category-filter"
+            className="block text-caption tracking-[0.14em] text-muted-light uppercase"
+          >
+            Category
+          </label>
+          <select
+            id="category-filter"
+            value={category}
+            onChange={(event) => {
+              setCategory(event.target.value)
+              setPage(1)
+            }}
+            className={`${selectClassName} mt-2`}
+          >
+            <option value="">All categories</option>
+            {(categories ?? []).map((option) => (
+              <option key={option.id} value={option.name}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
+
+      <BulkActionsBar
+        count={selection.selectedIds.length}
+        noun="project"
+        busy={bulk.busy}
+        onPublish={bulk.publish}
+        onUnpublish={bulk.unpublish}
+        onDelete={bulk.requestDelete}
+        onClear={selection.clear}
+      />
 
       <div className="mt-8">
         {loading && !data ? (
@@ -212,8 +276,8 @@ export function AdminProjectsPage() {
           <div className="border border-charcoal/15 px-6 py-12 text-center">
             <p className="font-serif text-h3 text-charcoal">No projects found</p>
             <p className="mx-auto mt-2 max-w-sm text-body-sm text-charcoal/70">
-              {search || status
-                ? 'No projects match these filters. Try clearing the search or status filter.'
+              {search || status || category
+                ? 'No projects match these filters. Try clearing the search, status, or category filter.'
                 : 'Create your first project to start building the public portfolio.'}
             </p>
             <Link
@@ -232,6 +296,15 @@ export function AdminProjectsPage() {
                 </caption>
                 <thead>
                   <tr className="border-b border-charcoal/20">
+                    <th scope="col" className="w-10 py-3 pr-4">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all projects on this page"
+                        checked={selection.allSelected}
+                        onChange={selection.toggleAll}
+                        className="size-4 accent-gold"
+                      />
+                    </th>
                     <th
                       scope="col"
                       className="py-3 pr-4 text-caption tracking-[0.14em] text-muted-light uppercase"
@@ -267,6 +340,15 @@ export function AdminProjectsPage() {
                 <tbody>
                   {items.map((project) => (
                     <tr key={project.id} className="border-b border-charcoal/10 align-top">
+                      <td className="py-4 pr-4">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${project.title}`}
+                          checked={selection.isSelected(project.id)}
+                          onChange={() => selection.toggle(project.id)}
+                          className="size-4 accent-gold"
+                        />
+                      </td>
                       <td className="py-4 pr-4">
                         <Link
                           to={`/admin/projects/${project.id}`}
@@ -375,14 +457,27 @@ export function AdminProjectsPage() {
         title="Delete this project?"
         description={
           deleteTarget
-            ? `“${deleteTarget.title}” will be permanently deleted. This cannot be undone. To hide a project instead, archive it.`
+            ? `“${deleteTarget.title}” will be moved to the trash and removed from the portfolio. You can restore it from Trash. To hide a project instead, archive it.`
             : ''
         }
-        confirmLabel="Delete project"
+        confirmLabel="Move to trash"
         destructive
         busy={deleting}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={bulk.deleteOpen}
+        title="Move these projects to the trash?"
+        description={`${selection.selectedIds.length} selected project${
+          selection.selectedIds.length === 1 ? '' : 's'
+        } will be hidden from the portfolio and can be restored from Trash.`}
+        confirmLabel="Move to trash"
+        destructive
+        busy={bulk.busy}
+        onConfirm={bulk.confirmDelete}
+        onCancel={bulk.cancelDelete}
       />
     </>
   )

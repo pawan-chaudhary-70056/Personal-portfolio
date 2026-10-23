@@ -12,16 +12,25 @@ export async function getOverview() {
     skillPublished,
     experienceTotal,
     experiencePublished,
+    educationTotal,
+    educationPublished,
+    certificationTotal,
+    certificationPublished,
   ] = await Promise.all([
-    prisma.project.count(),
-    prisma.project.count({ where: { status: 'DRAFT' } }),
-    prisma.project.count({ where: { status: 'PUBLISHED' } }),
-    prisma.project.count({ where: { status: 'ARCHIVED' } }),
-    prisma.project.count({ where: { featured: true } }),
-    prisma.skill.count(),
-    prisma.skill.count({ where: { published: true } }),
-    prisma.experience.count(),
-    prisma.experience.count({ where: { published: true } }),
+    // Trashed records are excluded everywhere: they are not part of the portfolio.
+    prisma.project.count({ where: { deletedAt: null } }),
+    prisma.project.count({ where: { status: 'DRAFT', deletedAt: null } }),
+    prisma.project.count({ where: { status: 'PUBLISHED', deletedAt: null } }),
+    prisma.project.count({ where: { status: 'ARCHIVED', deletedAt: null } }),
+    prisma.project.count({ where: { featured: true, deletedAt: null } }),
+    prisma.skill.count({ where: { deletedAt: null } }),
+    prisma.skill.count({ where: { published: true, deletedAt: null } }),
+    prisma.experience.count({ where: { deletedAt: null } }),
+    prisma.experience.count({ where: { published: true, deletedAt: null } }),
+    prisma.education.count({ where: { deletedAt: null } }),
+    prisma.education.count({ where: { published: true, deletedAt: null } }),
+    prisma.certification.count({ where: { deletedAt: null } }),
+    prisma.certification.count({ where: { published: true, deletedAt: null } }),
   ])
 
   const recentEvents = await listRecentAuditEvents(8)
@@ -31,6 +40,8 @@ export async function getOverview() {
     content: {
       skills: { total: skillTotal, published: skillPublished },
       experience: { total: experienceTotal, published: experiencePublished },
+      education: { total: educationTotal, published: educationPublished },
+      certifications: { total: certificationTotal, published: certificationPublished },
     },
     recentEvents,
   }

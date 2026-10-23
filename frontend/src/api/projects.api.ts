@@ -9,6 +9,7 @@ import { apiRequest } from '@/api/client'
 export interface ProjectListParams {
   search?: string
   status?: ProjectStatus | ''
+  category?: string
   page?: number
   pageSize?: number
   sort?: 'updated' | 'created' | 'title'
@@ -22,6 +23,7 @@ export function listProjects(
 
   if (params.search) query.set('search', params.search)
   if (params.status) query.set('status', params.status)
+  if (params.category) query.set('category', params.category)
   if (params.page) query.set('page', String(params.page))
   if (params.pageSize) query.set('pageSize', String(params.pageSize))
   if (params.sort) query.set('sort', params.sort)

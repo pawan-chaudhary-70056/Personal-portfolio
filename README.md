@@ -37,7 +37,7 @@ The public-facing website presents professional information through a refined, r
 
 Expected sections include:
 
-- Home and professional introduction.
+- Home and professional introduction, including the admin-managed portrait with a restrained interactive depth effect and a static fallback.
 - About and profile.
 - Projects and project categories.
 - Skills and technical expertise.
@@ -55,19 +55,21 @@ The administrative interface allows authorized users to manage portfolio content
 
 Expected capabilities include:
 
-- Profile and homepage content management.
+- Profile and homepage content management, including hero portrait uploads with draft, preview, and publish, plus section ordering, visibility, and featured project selection.
 - Project and category management.
 - Skills and skill-category management.
 - Experience, education, and certification management.
 - Media uploads and media-library management.
 - Draft, preview, publish, and unpublish workflows.
-- SEO and site settings.
+- Bulk publish, unpublish, and trash actions across content lists.
+- Trash with restore and permanent deletion, plus revision history with one-click restore.
+- SEO and site settings: site title, default description, canonical URL, and social sharing image.
 - Contact-message inbox.
 - Search, filtering, sorting, and pagination.
 - Revision history and content recovery.
 - Administrative audit logs and session management.
 
-Advanced capabilities such as scheduled publishing, analytics, backup status, and multiple administrator roles are optional and must not be considered implemented until their requirements, backend support, and tests are complete.
+Advanced capabilities are implemented: scheduled publishing with an automatic publish worker, page-view analytics, a read-only system health panel, and multiple administrator accounts with Owner and Editor roles enforced on the server. Owner-only areas (administrators, site settings, sessions, health, analytics, activity log) are hidden from editors and rejected by the API.
 
 ## Project Goals
 
@@ -267,7 +269,16 @@ personal-portfolio/
 │   ├── 12-deployment-and-maintenance.md
 │   ├── 13-admin-advanced-features.md
 │   └── 14-dynamic-content-and-media-management.md
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── backend/
+│   └── Dockerfile
+├── frontend/
+│   ├── Dockerfile
+│   └── nginx.conf
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── .env.example
 ├── .gitignore
 └── README.md
@@ -516,6 +527,19 @@ Production deployment should follow a documented release process.
 
 Do not run destructive database commands or development migrations against production without a reviewed migration and recovery plan.
 
+### Container Deployment
+
+`docker-compose.prod.yml` runs PostgreSQL, the API, and an nginx web container that serves the built SPA and proxies `/api` to the API on a single origin:
+
+```bash
+POSTGRES_PASSWORD=<db-password> \
+SESSION_SECRET=<at-least-32-characters> \
+PUBLIC_ORIGIN=https://example.com \
+  docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The API applies committed migrations on start, and uploads plus database data live on named volumes (`portfolio-media`, `portfolio-db`) that must be backed up together. The web container publishes `WEB_PORT` (default `8080`); terminate TLS in front of it, because production sessions use `Secure` cookies and will not work over plain HTTP. Container, proxy, and CI details are in `docs/12-deployment-and-maintenance.md` §32; CI checks are in `docs/11-testing-and-qa.md` §24.1.
+
 See `docs/12-deployment-and-maintenance.md` for the detailed deployment and operations guide.
 
 ## Documentation
@@ -536,7 +560,7 @@ The `docs/` directory contains the project's design, architecture, implementatio
 | `10-security.md` | Threat model, authentication, authorization, privacy, and security controls |
 | `11-testing-and-qa.md` | Test strategy, quality gates, release checks, and defect handling |
 | `12-deployment-and-maintenance.md` | Deployment, monitoring, backups, recovery, and maintenance |
-| `13-admin-advanced-features.md` | Bulk actions, revision history, trash/recovery, audit logs, sessions, and optional advanced capabilities |
+| `13-admin-advanced-features.md` | Bulk actions, revision history, trash/recovery, scheduled publishing, administrator roles, audit logs, and sessions |
 | `14-dynamic-content-and-media-management.md` | Dynamic content delivery, publishing, uploads, storage, optimization, and caching |
 
 The documentation is intended to guide implementation. Update it when architectural or behavioural decisions change, and distinguish planned features from verified functionality.

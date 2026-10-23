@@ -990,7 +990,103 @@ The database model is ready for release when:
 - Automated tests pass against a dedicated test database.
 - The schema documentation accurately reflects the actual database.
 
-## 20. Related Documentation
+## 20. Media Asset and Homepage Settings (Implemented)
+
+The hero portrait feature added two models. Both follow the rules in §5.13 and §5.14.
+
+### 20.1 `MediaAsset`
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `String @id @default(cuid())` | Opaque identifier used in URLs |
+| `storageKey` | `String @unique VarChar(120)` | Generated `<uuid>.<ext>` on the media volume |
+| `originalFilename` | `String VarChar(200)` | Administrative reference only, never used as a path |
+| `mimeType` | `String VarChar(60)` | Detected from file bytes |
+| `sizeBytes` | `Int` | Actual stored size |
+| `width`, `height` | `Int` | Parsed from the image header; used to reserve layout space |
+| `createdAt`, `updatedAt` | `DateTime` | Standard timestamps |
+
+Binary data is never stored in PostgreSQL. Deletion policy: restricted while the asset is referenced by homepage settings; the API checks both draft and published references and returns 409 otherwise.
+
+### 20.2 `HomepageSettings`
+
+Singleton row with fixed id `primary`, mirroring the `Profile` pattern.
+
+| Field group | Fields |
+|---|---|
+| Draft portrait | `draftPortraitId`, `draftPortraitAlt`, `draftPortraitVisible` |
+| Draft effect | `draftEffectEnabled`, `draftTiltIntensity`, `draftAnimationIntensity`, `draftFloatingEnabled` |
+| Draft layout | `draftSectionOrder`, `draftHiddenSections`, `draftFeaturedProjectIds` |
+| Published portrait | `publishedPortraitId`, `publishedPortraitAlt`, `publishedPortraitVisible` |
+| Published effect | `publishedEffectEnabled`, `publishedTiltIntensity`, `publishedAnimationIntensity`, `publishedFloatingEnabled` |
+| Published layout | `publishedSectionOrder`, `publishedHiddenSections`, `publishedFeaturedProjectIds` |
+| Publication | `publishedAt`, `createdAt`, `updatedAt` |
+
+- Both portrait references are optional foreign keys to `MediaAsset` with `onDelete: Restrict`. One asset may be referenced by the draft and the published state at the same time.
+- Intensities are integers `0–100`; the frontend maps them to a maximum of 10° of tilt and a restrained floating motion.
+- A row is created on the first successful draft update or upload; `GET` returns defaults before it exists.
+- Publication copies every draft field to its published counterpart inside one transaction, so public readers never observe a half-published state.
+- Clearing the draft portrait or disabling visibility does not change the published state until the administrator publishes again.
+- `sectionOrder` is a complete permutation of the section catalog (`about`, `work`, `skills`, `experience`, `credentials`, `contact`); hidden sections keep their position. `featuredProjectIds` accepts at most 12 published project ids, in display order.
+
+### 20.3 `SiteSettings`
+
+Singleton row with fixed id `primary`. Only the allowlisted public presentation fields exist as columns; there is no JSON catch-all for operational configuration.
+
+| Field | Type | Purpose |
+|---|---|---|
+| `siteTitle` | `String VarChar(120)` | Homepage and social preview title; empty falls back to the profile name and headline |
+| `siteDescription` | `String VarChar(320)` | Default meta description |
+| `canonicalUrl` | `String? VarChar(2048)` | Canonical and Open Graph URL; http(s) only |
+| `socialImageUrl` | `String? VarChar(2048)` | Social sharing image; http(s) only |
+
+- Settings are saved directly and are public immediately; they are not part of the homepage draft/publish cycle.
+- The row is created on the first successful save. `GET` returns empty defaults before it exists.
+- Every save writes `SITE_SETTINGS_UPDATED` to the audit log.
+
+## 21. Trash and Revision Storage (Implemented)
+
+### 21.1 Soft deletion
+
+`Project`, `Skill`, `Experience`, `Education`, and `Certification` each carry `deletedAt DateTime?` with an index. Migration `20261023053840_add_trash_and_revisions` adds the columns; no existing row is affected (all start `NULL`).
+
+- `NULL` means the record is live. A timestamp means it is in the trash.
+- Every read path filters `deletedAt: null`: admin lists and detail reads, public listings and detail lookups, overview counts, homepage featured candidates, and category usage counts.
+- Deletion updates the timestamp instead of removing the row, so project galleries remain intact for a restore. Permanent deletion removes the row and cascades to `ProjectScreenshot`.
+- Unique values (`Project.slug`, `Skill`'s `(categoryId, name)`) stay held by a trashed record until it is purged. The API reports this as a normal uniqueness conflict.
+
+### 21.2 Content revisions
+
+```prisma
+enum RevisionAction {
+  CREATED
+  UPDATED
+  DELETED
+  RESTORED
+}
+
+model ContentRevision {
+  id         String         @id @default(cuid())
+  entityType String         @db.VarChar(40)
+  entityId   String         @db.VarChar(64)
+  action     RevisionAction
+  snapshot   Json
+  adminId    String?
+  createdAt  DateTime       @default(now())
+
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([createdAt])
+}
+```
+
+- `entityType` matches the audit naming (`Project`, `Skill`, `Experience`, `Education`, `Certification`); `entityId` is the record id.
+- `snapshot` is the administrative representation of the record (including category names and project screenshots), never secrets or storage keys.
+- Revisions are append-only from the application: there is no update or delete endpoint. A revision restore writes a new `UPDATED` revision rather than editing history.
+- `Admin` deletion keeps history and sets `adminId` to `NULL`.
+
+## 22. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

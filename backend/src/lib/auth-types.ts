@@ -1,8 +1,11 @@
+import type { AdminRole } from '@prisma/client'
+
 /** Fields safe to expose to the client and attach to an authenticated request. */
 export interface AdminIdentity {
   id: string
   email: string
   name: string
+  role: AdminRole
 }
 
 /** Authenticated actor plus request metadata recorded in audit events. */

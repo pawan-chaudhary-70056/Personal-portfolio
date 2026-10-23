@@ -535,7 +535,17 @@ The animation system is ready for release when:
 11. Motion tokens and reusable utilities are documented.
 12. Unnecessary or distracting animations have been removed.
 
-## 19. Related Documentation
+## 19. Hero Portrait Interaction (Implemented)
+
+- The portrait honours the existing hero entrance (600ms, `--ease-editorial`, small upward offset) and then settles. It is never part of a longer sequence.
+- Pointer tilt: maximum rotation is `tiltIntensity / 100 × 10°` on each axis; the default 40 maps to 4°. Perspective is 1200px. Values are clamped and eased with a 300–500ms `--ease-standard` transition; there is no spring, bounce, or inertia.
+- Translation follows the tilt: at most 8px on either axis, scaled by `animationIntensity`.
+- Floating motion (optional): a 16px-maximum drift over 9–14 seconds, amplitude capped at 6px, gated by the `floating` setting. It pauses when the pointer is over the portrait.
+- The effect is disabled entirely on coarse pointers (`(pointer: coarse)`), when the administrator disables it, when intensity is 0, and under `prefers-reduced-motion: reduce`. In those cases the portrait is a static image with no transform.
+- No animation runs while the image is loading; the frame and fallback are static.
+- The effect must not intercept pointer events beyond its own frame and must not move focus targets.
+
+## 20. Related Documentation
 
 - [`README.md`](../README.md) — Project overview and setup.
 - [`01-project-overview.md`](./01-project-overview.md) — Project goals and scope.

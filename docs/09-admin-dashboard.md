@@ -540,16 +540,26 @@ The media library manages uploaded files and their metadata.
 
 ### 17.1 Supported operations
 
-Where implemented:
+Implemented at `/admin/media` (`AdminMediaPage`), backed by the authenticated
+`/api/admin/media` endpoints documented in `docs/07-backend-api.md`:
 
-- Browse media.
-- Search and filter media.
-- Upload files.
-- Preview images.
-- View file metadata.
-- Associate assets with profile or project records.
-- Replace media where permitted.
-- Delete unused assets safely.
+- Browse media in reverse-chronological pages of 20, with total counts.
+- Search by original filename or alt text (debounced, server-side).
+- Upload one JPEG, PNG, or WebP image per request; the page checks the MIME type
+  before sending, and the API validates the actual bytes.
+- Preview images through the session-protected `GET /api/admin/media/:id/file`.
+- View file metadata: filename, type, byte size, pixel dimensions, and timestamps.
+- Edit the alt text (`PATCH /api/admin/media/:id`).
+- Delete an asset (`DELETE /api/admin/media/:id`) after confirmation; the API
+  refuses with `409` while the homepage references the asset.
+
+Every operation writes an audit event (`MEDIA_UPLOADED`, `MEDIA_UPDATED`,
+`MEDIA_DELETED`). The page shows loading, empty, and error states, and signs the
+administrator out when a request returns `401`.
+
+Associating assets with project records is not implemented yet: project images
+and profile images still accept validated external URLs, and only the homepage
+portrait is chosen from uploaded media.
 
 ### 17.2 Upload workflow
 
@@ -1053,7 +1063,112 @@ The admin dashboard is ready for release when:
 - Automated tests pass.
 - Documentation matches the implemented features.
 
-## 35. Related Documentation
+## 35. Homepage Hero Portrait (Implemented)
+
+Route: `/admin/homepage`
+
+The page manages the portrait shown on the right of the public homepage hero. It reuses the authenticated admin shell, CSRF-protected client, inline alerts, and form styling.
+
+### 35.1 Controls
+
+- **Portrait upload:** file input accepting JPEG, PNG, and WebP; the browser checks type and size before requesting an upload. The selected file is previewed locally before it is uploaded.
+- **Draft preview:** the page renders the same hero portrait component used publicly, driven by draft values and the authenticated media endpoint, labelled as not public.
+- **Alt text:** required when the portrait is visible; enforced on publish.
+- **Visibility:** shows or hides the portrait on the public homepage after publishing.
+- **Effect controls:** enable/disable the effect, tilt intensity (0–100), animation intensity (0–100), and optional floating motion.
+- **Save draft:** persists draft values without affecting the public site.
+- **Publish:** copies the draft state to the published state; the public homepage updates on the next request.
+- **Remove portrait:** clears the draft reference; publishing afterwards restores the built-in fallback.
+- **Status:** published state, unpublished-change indicator, and upload limits are shown above the form.
+
+### 35.2 States and feedback
+
+- Uploading shows a busy state and any validation or server error in an alert.
+- A missing, failed, or removed image falls back to the editorial monogram panel.
+- The page is responsive, keyboard operable, and passes axe WCAG A/AA checks.
+- Unpublished drafts are never exposed by public endpoints or public media URLs.
+
+## 36. Homepage Sections and Site Settings (Implemented)
+
+Routes: `/admin/homepage` and `/admin/settings`
+
+### 36.1 Homepage sections
+
+The homepage page extends §35 with the layout controls described in §18:
+
+- **Section order:** an ordered list of every documented section with up/down controls; the hero is always first and is not reorderable.
+- **Visibility:** a per-section checkbox. Hidden sections stay in the order and return in place when shown again.
+- **Featured projects:** checkboxes over published projects only, capped at 12, displayed on the public homepage in the order selected. Projects without a selection fall back to their `featured` flag.
+- **Save layout:** persists the draft layout; publishing (the same publish action as the hero) copies it to the published state. Draft layout is never public.
+- Validation errors are shown inline per section or per featured selection, and success is announced only after persistence succeeds.
+
+### 36.2 Site settings
+
+The settings page manages the allowlisted public metadata from §19:
+
+- Site title, default description, canonical URL, and social sharing image.
+- The canonical and social image URLs must be absolute http(s) values; empty optional values are stored as `null`.
+- Only these fields are writable; credentials, connection strings, storage paths, and arbitrary server configuration have no representation in the API and are rejected.
+- Saving updates the public homepage metadata immediately; no publish step is required. Social profile links remain on the Profile page to keep one source of truth.
+- UI notes state that settings are public immediately, and every save is recorded in the activity log as `SITE_SETTINGS_UPDATED`.
+
+### 36.3 Verification
+
+- `backend/tests/homepage-settings.test.ts` covers authorization, CSRF, defaults, allowlisting, URL validation, section-order permutations, published-only featured references, draft privacy, and publish semantics.
+- The admin and homepage Playwright verifiers exercise both pages, including axe WCAG A/AA checks.
+
+## 37. Bulk Actions, Trash, and Revisions (Implemented)
+
+Route: `/admin/trash` and `/admin/revisions`; bulk controls sit on the projects, skills, experience, education, and certification lists.
+
+### 37.1 Bulk actions
+
+- Each content table has a select-all checkbox and a row checkbox. A toolbar appears while anything is selected, showing the count with Publish, Unpublish, Move to trash, and Clear selection.
+- The request is one transactional call (up to 50 records). If any selected record is missing or in the trash, the whole request fails with a message and nothing changes.
+- Deletion is confirmed before it runs. The page reports how many records changed and reloads the table.
+- Manual single-row actions remain available; both paths write the same audit events and revisions.
+
+### 37.2 Trash
+
+- `/admin/trash` lists removed content across all five collections, filterable by type and paginated, newest deletion first.
+- Each item shows what it was, whether it had been published, and when it was removed.
+- **Restore** returns the record to its list with its original values and visibility. **Delete permanently** requires confirmation and removes the record and its gallery; this cannot be undone.
+- A checkbox column and select-all control appear above the table. While anything is selected, a toolbar shows the count with **Restore selected**, **Delete permanently**, and **Clear selection**. The bulk actions work across content types in one request, so a page filtered to “All content” can be cleared in one go.
+- Bulk restore reports how many records returned; bulk permanent deletion always asks for confirmation and names the selected count. If any selected record is no longer in the trash, the whole request is refused and nothing changes.
+- The page explains that trashed records keep their names and slugs reserved until purged.
+
+### 37.3 Revision history
+
+- `/admin/revisions` lists saved snapshots with content type, record id, change type, editor, and time, filterable by type and by a single record id.
+- Selecting **View snapshot** opens a field-level diff against the previous snapshot for that record, listing each changed field with its before and after values. The first snapshot lists every field as new; a revision that changed nothing shows an empty-diff message. The raw JSON stays available under **Raw snapshot**. **Restore** re-applies the snapshot after confirmation.
+- Restoring runs through the ordinary update path, so field validation and publication rules still apply, and the restore itself becomes a new revision.
+- Records in the trash must be restored before one of their revisions can be re-applied.
+
+### 37.4 Related endpoints
+
+See `docs/07-backend-api.md` §29 for request and response contracts.
+
+## 38. Scheduled Publishing (Implemented)
+
+Route: `/admin/scheduling`.
+
+- Lists unpublished, live records across the five content types with their current schedule.
+- Each row has a `datetime-local` input pre-filled with any existing schedule, plus **Schedule** and **Cancel schedule** actions. Times are entered and displayed in the administrator’s local zone and sent as ISO UTC.
+- Past times are rejected in the browser and again by the API. Published records are not listed; they must be unpublished before scheduling, and trashed records must be restored.
+- The server publishes due records within about 30 seconds of the chosen time, clears the schedule, and writes a revision and audit event. Failures retry on the next tick without affecting the API.
+- The page states the 30-second window so the behaviour is not a surprise.
+
+## 39. Administrators and Roles (Implemented)
+
+Route: `/admin/administrators` (owners only).
+
+- Lists every account with name, email, role, active status, and last sign-in. The current account is marked **(you)**.
+- **Add an administrator** creates an owner or editor account with a 12-character minimum password; the API rejects duplicate emails.
+- The role selector changes an account between Owner and Editor. The API refuses to demote the last active owner.
+- **Reset password** sets a new password and revokes that account’s sessions. **Deactivate** signs the account out immediately and blocks sign-in until reactivated; your own account cannot be deactivated.
+- The owner-only navigation group (site settings, health, analytics, administrators, activity log, sessions) is hidden for editors, and those routes redirect to the overview. The server enforces the same rule independently.
+
+## 40. Related Documentation
 
 - `README.md` — Project overview and setup.
 - `docs/01-project-overview.md` — Overall product scope.

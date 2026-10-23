@@ -873,7 +873,61 @@ A deployment is complete when:
 
 The application must not be described as production-ready until the relevant checks have actually been performed.
 
-## 31. Related Documentation
+## 31. Media Storage Operations (Implemented)
+
+Uploaded portraits are stored on disk under `MEDIA_ROOT`; only metadata and references live in PostgreSQL.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MEDIA_ROOT` | `storage/media` (relative to `backend/`) | Directory for uploaded image bytes |
+| `MEDIA_MAX_BYTES` | `8388608` (8 MiB) | Per-file upload limit, enforced by the parser |
+
+Operational requirements:
+
+- Create the directory before the first upload; the API creates it recursively on demand with owner-only permissions.
+- The directory must be persistent and included in backups. Losing it leaves database rows pointing at missing files, so the public endpoint then falls back gracefully but the portrait is gone.
+- Do not place the directory inside the built SPA output or any web-server document root. Files are served only through the API, and only for the currently published asset.
+- The storage interface is provider-neutral, so a future object-storage adapter can replace local disk without changing the API or admin UI.
+- Retention: superseded and removed assets are deleted automatically once unreferenced. No scheduled cleanup job exists yet; abandoned files are limited to uploads whose request failed before the database write, which the storage service deletes on failure.
+- Verify after deployment: sign in, upload a portrait, confirm the draft is not public, publish, confirm the homepage image loads, then restore the previous portrait if needed.
+
+## 32. Containers, CI, and Reverse Proxy (Implemented)
+
+| File | Purpose |
+|---|---|
+| `backend/Dockerfile` | Multi-stage API image: `npm ci`, `prisma generate`, `tsc`, then a non-root runtime on `node:24-alpine`. Media lives at `/app/storage/media`; the health check calls `/api/health`. |
+| `frontend/Dockerfile` | Builds the SPA with `npm run build` and serves `dist` from `nginx:1.29-alpine`. |
+| `frontend/nginx.conf` | Single-origin reverse proxy: `/api/` → `api:4000`, SPA history fallback, immutable asset caching, revalidated HTML, security headers, 9 MB request cap. |
+| `docker-compose.prod.yml` | `db` (PostgreSQL 18), `api`, `web`, plus named volumes for database data and uploaded media. |
+| `.github/workflows/ci.yml` | Continuous integration; see `docs/11-testing-and-qa.md` §24.1. |
+
+### 32.1 Running the stack
+
+```bash
+POSTGRES_PASSWORD=... SESSION_SECRET=<at-least-32-characters> \
+  PUBLIC_ORIGIN=https://example.com \
+  docker compose -f docker-compose.prod.yml up -d --build
+```
+
+- Only `web` publishes a port (`WEB_PORT`, default `8080`). PostgreSQL and the API are reachable only on the Compose network.
+- `FRONTEND_ORIGIN` defaults to `PUBLIC_ORIGIN`. With one origin CORS becomes a no-op, but keep the value accurate: it documents where the SPA is served.
+- `TRUST_PROXY=true` lets the API read `X-Forwarded-*`. nginx overwrites `X-Forwarded-For` with the peer address and forwards `X-Forwarded-Proto`, so rate limiting sees the real client and secure cookies see the real scheme.
+- Sessions use `Secure` cookies whenever `NODE_ENV=production`. Terminate TLS in front of `web` (or add a `443` server block); signing in over plain HTTP against this stack does not work by design.
+- Migrations: `api` runs `prisma migrate deploy` before `node dist/index.js`. That is safe for a single instance; for several replicas, run migrations as a separate release step and drop the prefix from the command.
+- Persistent state: `portfolio-db` holds PostgreSQL data (mounted at `/var/lib/postgresql`, the versioned layout PostgreSQL 18+ expects) and `portfolio-media` holds uploaded files. Back both up together. Removing either volume loses content.
+- The runtime image runs as the unprivileged `node` user (uid 1000). A bind-mounted media directory must be writable by that uid.
+
+### 32.2 What CI enforces
+
+`ci.yml` runs three jobs on every push to `main` and every pull request, with read-only repository permissions and superseded runs cancelled:
+
+- **Backend:** `npm ci`, `prisma generate`, `tsc` for source and tests, the full Vitest suite against a throwaway PostgreSQL 18 service on port 5433, then `tsc` build output.
+- **Frontend:** `npm ci`, `oxlint`, and the production build (`tsc -b && vite build`).
+- **Containers:** both Dockerfiles must build.
+
+The Playwright verification scripts (`verify:homepage`, `verify:admin`) are not part of CI because they need seeded content and a browser; run them locally before a release.
+
+## 33. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

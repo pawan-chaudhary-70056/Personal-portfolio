@@ -1,0 +1,65 @@
+# Production-shaped single-origin deployment.
+#
+#   POSTGRES_PASSWORD=... SESSION_SECRET=... PUBLIC_ORIGIN=https://example.com \
+#     docker compose -f docker-compose.prod.yml up -d --build
+#
+# TLS is expected to terminate in front of the web container (or in an added
+# nginx server block). The API sets Secure session cookies in production, so it
+# must be reached over HTTPS in real deployments.
+#
+# Migrations run once per `api` start. For multiple replicas, run
+# `npx prisma migrate deploy` as a separate release step instead.
+name: portfolio
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: portfolio
+    volumes:
+      # PostgreSQL 18+ keeps versioned data under /var/lib/postgresql.
+      - portfolio-db:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U portfolio -d portfolio']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://portfolio:${POSTGRES_PASSWORD}@db:5432/portfolio?schema=public
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
+      SESSION_COOKIE_NAME: portfolio.sid
+      FRONTEND_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      MEDIA_ROOT: /app/storage/media
+      MEDIA_MAX_BYTES: ${MEDIA_MAX_BYTES:-8388608}
+      MEDIA_UPLOAD_LIMIT_PER_HOUR: ${MEDIA_UPLOAD_LIMIT_PER_HOUR:-20}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-5}
+      # nginx overwrites X-Forwarded-For, so the API can trust its value.
+      TRUST_PROXY: 'true'
+    volumes:
+      - portfolio-media:/app/storage/media
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      ['sh', '-c', 'npx prisma migrate deploy && node dist/index.js']
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:80'
+    depends_on:
+      - api
+
+volumes:
+  portfolio-db:
+  portfolio-media:

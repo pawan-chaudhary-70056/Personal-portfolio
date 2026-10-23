@@ -2,7 +2,20 @@ import { z } from 'zod'
 import { dateOnlySchema } from './common.schema.js'
 
 /** Entity types currently written by the audit service. */
-export const auditEntityTypeSchema = z.enum(['Project', 'Skill', 'Experience', 'Admin'])
+export const auditEntityTypeSchema = z.enum([
+  'Project',
+  'ProjectCategory',
+  'Skill',
+  'SkillCategory',
+  'Experience',
+  'Education',
+  'Certification',
+  'Profile',
+  'Admin',
+  'ContactMessage',
+  'HomepageSettings',
+  'MediaAsset',
+])
 export type AuditEntityType = z.infer<typeof auditEntityTypeSchema>
 
 const blankToUndefined = (value: string | undefined) => (value ? value : undefined)

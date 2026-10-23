@@ -22,7 +22,7 @@ export function NotFoundPage() {
         start again.
       </p>
       <div className="mt-10">
-        <ButtonLink href="/">Back to homepage</ButtonLink>
+        <ButtonLink to="/">Back to homepage</ButtonLink>
       </div>
     </Section>
   )

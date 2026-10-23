@@ -15,6 +15,9 @@ export default defineConfig({
       SESSION_COOKIE_NAME: 'portfolio.sid',
       FRONTEND_ORIGIN: 'http://localhost:5173',
       TRUST_PROXY: 'false',
+      // Isolated media directory, recreated by the global setup.
+      MEDIA_ROOT: 'tests/.tmp-media',
+      MEDIA_MAX_BYTES: '1048576',
     },
     testTimeout: 20_000,
     hookTimeout: 60_000,

@@ -105,7 +105,7 @@ Requirements:
 - Disable or revoke compromised accounts promptly.
 - Avoid unnecessary administrator accounts.
 
-If the project supports only one administrator, the authorization model should still enforce the documented administrator permissions.
+The dashboard implements two roles. `OWNER` may manage administrator accounts, site settings, sessions, health, analytics, and the activity log; `EDITOR` may manage content, media, the inbox, trash, revisions, and scheduling. The role is stored on the account, read from the database on every request, and never accepted from the client. Owner-only routes return `403 forbidden` for editors, and the last active owner cannot be demoted or deactivated.
 
 ### 5.2 Password storage
 
@@ -792,7 +792,22 @@ The application must demonstrate that:
 
 Documentation, security checklists, and passing automated scans are not substitutes for verification of the running application.
 
-## 26. Related Documentation
+## 26. Media Upload Security (Implemented)
+
+The hero portrait upload is the first endpoint that accepts binary content.
+
+- Every upload, replacement, removal, draft update, publication, media read, and media deletion goes through `requireAdmin`; the upload route also requires the CSRF token like every other state-changing request.
+- Uploads are rate limited per IP (`20` per hour) in addition to the session requirement.
+- The multipart parser enforces a single file and the configured byte limit before the handler runs; oversized files are rejected with 413 and nothing is written.
+- The client filename and `Content-Type` are ignored. The file is accepted only when its magic bytes match JPEG, PNG, or WebP. SVG is rejected because it can carry active content, and no sanitisation pipeline exists.
+- Width, height, and pixel count are parsed from the file header; limits are 8000px per edge and 30 megapixels, which bounds decompression work.
+- Storage keys are generated from a random UUID and the detected extension. No request value reaches a filesystem path, and reads validate the key shape before resolving it under the media root.
+- Files are written outside the web root and are never served by a generic static handler. Public reads are restricted to the one asset id referenced by the published homepage state; draft assets are only readable through the authenticated admin media route.
+- Responses set the detected `Content-Type`, `Content-Length`, `X-Content-Type-Options: nosniff` (via Helmet), and immutable caching for published bytes. Unknown or unpublished ids return 404 without revealing whether a file exists.
+- Only metadata and references are stored in PostgreSQL. Storage credentials stay in environment variables; the repository contains none.
+- Audit events record asset ids, detected types, sizes, and dimensions, but never file bytes or storage paths. Upload failures do not modify published content, and deleting an unreferenced asset is the only path that removes a file.
+
+## 27. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

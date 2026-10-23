@@ -1,20 +1,20 @@
 export interface NavigationItem {
   label: string
-  href: string
+  to: string
 }
 
 /**
- * Homepage navigation uses section anchors because this release is a single
- * page. When `/about`, `/projects`, and `/experience` pages ship
- * (docs/02-portfolio-requirements.md §6), these hrefs become routes.
+ * Public navigation uses real routes (docs/02-portfolio-requirements.md §5.1).
+ * Skills, education, and certifications live on the About page, which the
+ * homepage links to; they do not get separate top-level navigation items.
  */
 export const primaryNavigation: NavigationItem[] = [
-  { label: 'About', href: '#about' },
-  { label: 'Work', href: '#work' },
-  { label: 'Skills', href: '#skills' },
-  { label: 'Experience', href: '#experience' },
+  { label: 'Home', to: '/' },
+  { label: 'About', to: '/about' },
+  { label: 'Projects', to: '/projects' },
+  { label: 'Experience', to: '/experience' },
 ]
 
-export const contactNavigation: NavigationItem = { label: 'Contact', href: '#contact' }
+export const contactNavigation: NavigationItem = { label: 'Contact', to: '/contact' }
 
 export const navigation: NavigationItem[] = [...primaryNavigation, contactNavigation]

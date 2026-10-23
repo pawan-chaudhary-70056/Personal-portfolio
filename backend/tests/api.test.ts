@@ -23,7 +23,7 @@ const validProject = {
 
 async function resetDatabase(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "Project", "AuditEvent", "Admin", "session", "Skill", "Experience" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "MediaAsset", "HomepageSettings", "SiteSettings", "ProjectCategory", "SkillCategory", "Project", "AuditEvent", "Admin", "session", "Skill", "Experience", "Education", "Certification", "Profile" RESTART IDENTITY CASCADE',
   )
 }
 
@@ -66,7 +66,7 @@ describe('authorization', () => {
   it('rejects unauthenticated admin reads', async () => {
     await request(app).get('/api/admin/projects').expect(401)
     await request(app).get('/api/admin/overview').expect(401)
-    await request(app).get('/api/admin/audit-events').expect(401)
+    await request(app).get('/api/admin/audit-logs').expect(401)
   })
 
   it('rejects unauthenticated writes', async () => {
@@ -339,6 +339,34 @@ describe('project CRUD', () => {
     // Administrative fields must not leak through the public endpoint.
     expect(publicList.body.projects[0]).not.toHaveProperty('status')
     expect(publicList.body.projects[0]).not.toHaveProperty('sortOrder')
+  })
+
+  it('serves published project details by slug and hides drafts', async () => {
+    const agent = await signedInAgent()
+    const token = await csrfToken(agent)
+
+    await agent
+      .post('/api/admin/projects')
+      .set('x-csrf-token', token)
+      .send({ ...validProject, status: 'PUBLISHED' })
+      .expect(201)
+
+    const detail = await request(app).get('/api/projects/secure-notes-api').expect(200)
+    expect(detail.body.project).toMatchObject({
+      slug: 'secure-notes-api',
+      title: validProject.title,
+    })
+    expect(detail.body.project).not.toHaveProperty('status')
+
+    await request(app).get('/api/projects/missing-project').expect(404)
+
+    await agent
+      .post('/api/admin/projects')
+      .set('x-csrf-token', token)
+      .send({ ...validProject, title: 'Draft only', slug: 'draft-only' })
+      .expect(201)
+
+    await request(app).get('/api/projects/draft-only').expect(404)
   })
 
   it('updates fields without resetting unrelated values', async () => {

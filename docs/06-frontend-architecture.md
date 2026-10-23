@@ -887,7 +887,29 @@ A frontend feature is complete when:
 - Type checking, linting, formatting, and production builds pass.
 - Documentation matches the actual implementation.
 
-## 24. Related Documentation
+## 24. Homepage Hero Portrait (Implemented)
+
+The homepage hero keeps the editorial layout: introduction, headline, biography summary, and calls to action on the left; the managed portrait on the right at `lg` and above. Below `lg` the portrait follows the text in normal document order, so the reading order stays headline → description → actions → portrait.
+
+- Data comes from `GET /api/hero`, fetched with the other public collections in `PortfolioProvider` so the homepage never fires a second request for the same content.
+- `HeroPortrait` is a reusable component used by both the public hero and the admin draft preview. It receives `{ url, alt, width, height }` plus effect settings and the display name for the fallback monogram.
+- The image reserves its space with `aspect-4/5`, explicit `width`/`height` attributes, and `fetchpriority="high"`; it is never lazy-loaded because it is the hero.
+- Failure states: no published portrait, disabled visibility, or a failed image load render the built-in monogram panel instead of a broken image or empty column. A failed load never blocks interaction with the rest of the hero.
+- The interactive effect is pointer-only and progressively enhanced. It is skipped for coarse pointers, when the effect is disabled, when the animation intensity is zero, and when `prefers-reduced-motion: reduce` is set. Keyboard users receive the static presentation.
+- Transform values are written to CSS custom properties through a ref on animation frames, so pointer movement does not re-render React components.
+- All colours continue to use the existing tokens; the frame uses a gold hairline and charcoal gradient from the design system.
+
+## 25. Homepage Layout and Site Metadata (Implemented)
+
+The homepage reads its published layout and approved metadata from `GET /api/portfolio/homepage` alongside the other public collections in `PortfolioProvider`, so rendering stays a single request round.
+
+- The hero always renders first. The remaining sections (`about`, `work`, `skills`, `experience`, `credentials`, `contact`) follow the published order, and hidden sections are omitted without leaving gaps.
+- `FeaturedWork` uses the published featured project references in the administrator's order. Without a selection it falls back to each project's `featured` flag, then to all published projects, so the section never renders empty.
+- `setPageMetadata` applies the site title, description, canonical URL, and social image, with the profile name/headline and biography summary as fallbacks when the owner has not filled the settings in. The social image also sets `twitter:card`.
+- Draft layout and draft featured selections are never read by the public app; the endpoint returns published values only.
+- If a featured project is archived after publication, the endpoint omits it and the remaining cards keep their order.
+
+## 26. Related Documentation
 
 - `README.md` — Project overview and setup.
 - `docs/01-project-overview.md` — Product scope and goals.

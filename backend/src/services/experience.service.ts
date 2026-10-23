@@ -9,6 +9,7 @@ import type {
   UpdateExperienceInput,
 } from '../schemas/experience.schema.js'
 import type { RequestContext } from '../lib/auth-types.js'
+import { recordContentRevision } from './content.service.js'
 
 interface DateRules {
   startDate: Date
@@ -35,7 +36,7 @@ function assertDateRules({ startDate, endDate, isCurrent }: DateRules): void {
 }
 
 export async function listExperience(query: ListExperienceQuery) {
-  const where: Prisma.ExperienceWhereInput = {}
+  const where: Prisma.ExperienceWhereInput = { deletedAt: null }
 
   if (query.search) {
     where.OR = [
@@ -54,7 +55,7 @@ export async function listExperience(query: ListExperienceQuery) {
 /** Public listing: published roles only, ordered for display. */
 export async function listPublishedExperience() {
   return prisma.experience.findMany({
-    where: { published: true },
+    where: { published: true, deletedAt: null },
     orderBy: [{ sortOrder: 'asc' }, { startDate: 'desc' }],
     select: {
       id: true,
@@ -72,7 +73,7 @@ export async function listPublishedExperience() {
 }
 
 export async function getExperience(id: string) {
-  const experience = await prisma.experience.findUnique({ where: { id } })
+  const experience = await prisma.experience.findFirst({ where: { id, deletedAt: null } })
 
   if (!experience) {
     throw notFound('Experience')
@@ -117,6 +118,8 @@ export async function createExperience(input: CreateExperienceInput, ctx: Reques
       tx,
     )
 
+    await recordContentRevision(tx, 'experience', experience.id, 'CREATED', ctx.adminId)
+
     return experience
   })
 }
@@ -126,7 +129,7 @@ export async function updateExperience(
   input: UpdateExperienceInput,
   ctx: RequestContext,
 ) {
-  const existing = await prisma.experience.findUnique({ where: { id } })
+  const existing = await prisma.experience.findFirst({ where: { id, deletedAt: null } })
 
   if (!existing) {
     throw notFound('Experience')
@@ -178,19 +181,21 @@ export async function updateExperience(
       tx,
     )
 
+    await recordContentRevision(tx, 'experience', experience.id, 'UPDATED', ctx.adminId)
+
     return experience
   })
 }
 
 export async function deleteExperience(id: string, ctx: RequestContext): Promise<void> {
-  const existing = await prisma.experience.findUnique({ where: { id } })
+  const existing = await prisma.experience.findFirst({ where: { id, deletedAt: null } })
 
   if (!existing) {
     throw notFound('Experience')
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.experience.delete({ where: { id } })
+    await tx.experience.update({ where: { id }, data: { deletedAt: new Date() } })
 
     await recordAudit(
       {
@@ -200,9 +205,15 @@ export async function deleteExperience(id: string, ctx: RequestContext): Promise
         adminId: ctx.adminId,
         ip: ctx.ip,
         userAgent: ctx.userAgent,
-        metadata: { role: existing.role, organization: existing.organization },
+        metadata: {
+          role: existing.role,
+          organization: existing.organization,
+          trashed: true,
+        },
       },
       tx,
     )
+
+    await recordContentRevision(tx, 'experience', existing.id, 'DELETED', ctx.adminId)
   })
 }

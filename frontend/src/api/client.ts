@@ -47,6 +47,7 @@ async function getCsrfToken(): Promise<string> {
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  /** A plain object is JSON encoded; a FormData body is sent untouched. */
   body?: unknown
   signal?: AbortSignal
 }
@@ -54,8 +55,10 @@ interface RequestOptions {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET'
   const headers: Record<string, string> = { accept: 'application/json' }
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
 
-  if (options.body !== undefined) {
+  if (options.body !== undefined && !isFormData) {
     headers['content-type'] = 'application/json'
   }
 
@@ -67,7 +70,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method,
     headers,
     credentials: 'same-origin',
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
     signal: options.signal,
   })
 

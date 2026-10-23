@@ -912,7 +912,31 @@ A content or media feature is complete when:
 - [ ] Deployment and recovery requirements are documented.
 - [ ] Documentation accurately reflects implemented behaviour.
 
-## 25. Final Principle
+## 25. Implemented: Hero Portrait Media Flow
+
+The first end-to-end media workflow is the homepage hero portrait. It follows the requirements in §8–§13 for that single asset type:
+
+- **Upload:** authenticated `POST /api/admin/homepage/portrait` with one JPEG, PNG, or WebP under the configured limit; bytes are validated against magic numbers, dimensions are parsed, a random storage key is generated, the file is written under `MEDIA_ROOT`, and metadata is recorded in `MediaAsset`.
+- **Draft state:** the upload becomes the draft portrait in the `HomepageSettings` singleton. Alt text, visibility, and effect settings are editable through `PATCH /api/admin/homepage`; nothing reaches the public site until publication.
+- **Preview:** the admin page renders the same `HeroPortrait` component with draft values and the authenticated `GET /api/admin/media/:id/file` endpoint. A locally selected file is previewed with an object URL before upload.
+- **Publish:** `POST /api/admin/homepage/publish` copies the draft state to the published columns atomically. The public `GET /api/hero` then returns the new portrait URL, and `GET /api/media/hero-portrait/:id` serves those bytes only while that asset is the published, visible portrait.
+- **Replacement and removal:** replacing sets a new draft asset; removing clears the draft reference. Superseded assets are deleted once neither draft nor published state references them. Unreferenced assets can also be deleted through `DELETE /api/admin/media/:id`, which returns 409 while referenced.
+- **Failure handling:** validation or storage failures leave the existing draft and published state untouched. Missing files return 404 publicly and the homepage falls back to the monogram panel.
+
+### The general media library
+
+The library required by §10–§13 is now implemented as a standalone collection rather than a portrait-only flow:
+
+- Storage is shared: `MediaAsset` rows created by the portrait upload and by the library are the same records, so a portrait appears in the library and is marked `referenced` there. Selecting an existing library asset from the portrait form is not implemented; the form still uploads the new portrait directly.
+- Endpoints: `GET /api/admin/media` (paginated, `search` over filename and alt text), `POST /api/admin/media` (single image upload, rate limited per hour), `GET /api/admin/media/:id`, `GET /api/admin/media/:id/file` (session-protected bytes), `PATCH /api/admin/media/:id` (alt text), and `DELETE /api/admin/media/:id`.
+- Safety: the upload path is unchanged — size limit, magic-number allowlist, dimension parsing, generated UUID key, owner-only file mode, metadata written only after the file is stored, and the file removed if the database write fails. The file route requires a session and returns `private, no-store`.
+- Deletion is refused with `409` while the homepage draft or published portrait references the asset; unreferenced assets delete the row first and the file second.
+- Administration happens at `/admin/media`; see `docs/09-admin-dashboard.md` §17.
+- Tests: `backend/tests/media.test.ts` covers listing, search, pagination, upload validation, update, reference-protected deletion, and cleanup.
+
+Still not implemented from this document: attaching library assets to project or profile records, gallery uploads, generated responsive variants, and object storage. Project and profile images continue to accept validated external URLs.
+
+## 26. Final Principle
 
 The public portfolio should remain fast, polished, and reliable while the administrator can manage content without code changes.
 

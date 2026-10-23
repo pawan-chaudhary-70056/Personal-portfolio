@@ -8,6 +8,17 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
   SESSION_COOKIE_NAME: z.string().min(1).default('portfolio.sid'),
   FRONTEND_ORIGIN: z.string().min(1).optional(),
+  /** Uploaded media directory. Relative paths resolve from the backend root. */
+  MEDIA_ROOT: z.string().min(1).default('storage/media'),
+  /** Largest accepted image, in bytes. The multipart parser enforces it. */
+  MEDIA_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .max(50 * 1024 * 1024)
+    .default(8 * 1024 * 1024),
+  /** Portrait uploads allowed per hour, per client IP. */
+  MEDIA_UPLOAD_LIMIT_PER_HOUR: z.coerce.number().int().min(1).max(1000).default(20),
   /** Failed sign-in attempts allowed per 15 minutes, per client IP. */
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000).default(5),
   TRUST_PROXY: z

@@ -1,4 +1,13 @@
-import type { AdminExperience, AdminSkill, ExperiencePayload, SkillPayload } from '@/@types/admin'
+import type {
+  AdminCertification,
+  AdminEducation,
+  AdminExperience,
+  AdminSkill,
+  CertificationPayload,
+  EducationPayload,
+  ExperiencePayload,
+  SkillPayload,
+} from '@/@types/admin'
 
 export interface SkillFormValues {
   name: string
@@ -78,5 +87,87 @@ export function toExperiencePayload(values: ExperienceFormValues): ExperiencePay
     isCurrent: values.isCurrent,
     published: values.published,
     sortOrder: Number.isNaN(sortOrder) ? 0 : sortOrder,
+  }
+}
+
+export interface EducationFormValues {
+  institution: string
+  qualification: string
+  fieldOfStudy: string
+  description: string
+  startDate: string
+  endDate: string
+  sortOrder: string
+  published: boolean
+}
+
+export function toEducationFormValues(entry?: AdminEducation): EducationFormValues {
+  return {
+    institution: entry?.institution ?? '',
+    qualification: entry?.qualification ?? '',
+    fieldOfStudy: entry?.fieldOfStudy ?? '',
+    description: entry?.description ?? '',
+    startDate: toDateInput(entry?.startDate ?? null),
+    endDate: toDateInput(entry?.endDate ?? null),
+    sortOrder: String(entry?.sortOrder ?? 0),
+    published: entry?.published ?? true,
+  }
+}
+
+export function toEducationPayload(values: EducationFormValues): EducationPayload {
+  const sortOrder = Number.parseInt(values.sortOrder, 10)
+
+  return {
+    institution: values.institution.trim(),
+    qualification: values.qualification.trim(),
+    fieldOfStudy: values.fieldOfStudy.trim() || null,
+    description: values.description.trim() || null,
+    startDate: values.startDate || null,
+    endDate: values.endDate || null,
+    sortOrder: Number.isNaN(sortOrder) ? 0 : sortOrder,
+    published: values.published,
+  }
+}
+
+export interface CertificationFormValues {
+  name: string
+  issuingOrganization: string
+  issueDate: string
+  expiryDate: string
+  credentialId: string
+  credentialUrl: string
+  sortOrder: string
+  published: boolean
+}
+
+export function toCertificationFormValues(
+  entry?: AdminCertification,
+): CertificationFormValues {
+  return {
+    name: entry?.name ?? '',
+    issuingOrganization: entry?.issuingOrganization ?? '',
+    issueDate: toDateInput(entry?.issueDate ?? null),
+    expiryDate: toDateInput(entry?.expiryDate ?? null),
+    credentialId: entry?.credentialId ?? '',
+    credentialUrl: entry?.credentialUrl ?? '',
+    sortOrder: String(entry?.sortOrder ?? 0),
+    published: entry?.published ?? true,
+  }
+}
+
+export function toCertificationPayload(
+  values: CertificationFormValues,
+): CertificationPayload {
+  const sortOrder = Number.parseInt(values.sortOrder, 10)
+
+  return {
+    name: values.name.trim(),
+    issuingOrganization: values.issuingOrganization.trim(),
+    issueDate: values.issueDate || null,
+    expiryDate: values.expiryDate || null,
+    credentialId: values.credentialId.trim() || null,
+    credentialUrl: values.credentialUrl.trim() || null,
+    sortOrder: Number.isNaN(sortOrder) ? 0 : sortOrder,
+    published: values.published,
   }
 }

@@ -1,7 +1,8 @@
-import type { Project } from '@/@types/portfolio'
+import { Link } from 'react-router-dom'
+import type { PublicProject } from '@/@types/portfolio'
 
 interface ProjectCardProps {
-  project: Project
+  project: PublicProject
   index: number
 }
 
@@ -12,7 +13,14 @@ interface ProjectLink {
 
 export function ProjectCard({ project, index }: ProjectCardProps) {
   const displayIndex = String(index + 1).padStart(2, '0')
-  const titleHref = project.liveUrl ?? project.repositoryUrl
+  const detailHref = `/projects/${project.slug}`
+  // The cover falls back to the first gallery screenshot, so a project with
+  // screenshots never renders the numbered placeholder.
+  const cover = project.imageUrl
+    ? { url: project.imageUrl, alt: project.imageAlt ?? '' }
+    : project.screenshots[0]
+      ? { url: project.screenshots[0].url, alt: project.screenshots[0].alt }
+      : null
 
   const links: ProjectLink[] = [
     ...(project.liveUrl ? [{ label: 'Live site', url: project.liveUrl }] : []),
@@ -22,10 +30,10 @@ export function ProjectCard({ project, index }: ProjectCardProps) {
   return (
     <article className="group flex h-full flex-col transition-transform duration-[250ms] ease-standard hover:-translate-y-1">
       <div className="relative aspect-4/3 overflow-hidden bg-charcoal-900">
-        {project.imageUrl ? (
+        {cover ? (
           <img
-            src={project.imageUrl}
-            alt={project.imageAlt ?? ''}
+            src={cover.url}
+            alt={cover.alt}
             loading="lazy"
             decoding="async"
             className="h-full w-full object-cover transition-transform duration-[400ms] ease-standard group-hover:scale-[1.02]"
@@ -54,18 +62,12 @@ export function ProjectCard({ project, index }: ProjectCardProps) {
       </div>
 
       <h3 className="mt-3 text-h3 text-ivory">
-        {titleHref ? (
-          <a
-            href={titleHref}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="link-underline transition-colors duration-150 ease-standard hover:text-gold"
-          >
-            {project.title}
-          </a>
-        ) : (
-          project.title
-        )}
+        <Link
+          to={detailHref}
+          className="link-underline transition-colors duration-150 ease-standard hover:text-gold"
+        >
+          {project.title}
+        </Link>
       </h3>
 
       <p className="mt-3 text-body-sm text-ivory/65">{project.summary}</p>
@@ -79,30 +81,28 @@ export function ProjectCard({ project, index }: ProjectCardProps) {
             {technology}
           </li>
         ))}
-        {project.sample ? (
-          <li className="border border-gold/40 px-2.5 py-1 text-caption tracking-wide text-gold">
-            Sample
-          </li>
-        ) : null}
       </ul>
 
-      {links.length > 0 ? (
-        <ul className="mt-auto flex gap-6 pt-6">
-          {links.map((link) => (
-            <li key={link.url}>
-              <a
-                href={link.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label={`${link.label} for ${project.title} (opens in a new tab)`}
-                className="link-underline text-body-sm text-gold"
-              >
-                {link.label} ↗
-              </a>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ul className="mt-auto flex flex-wrap gap-x-6 gap-y-2 pt-6">
+        <li>
+          <Link to={detailHref} className="link-underline text-body-sm text-gold">
+            Project details →
+          </Link>
+        </li>
+        {links.map((link) => (
+          <li key={link.url}>
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label={`${link.label} for ${project.title} (opens in a new tab)`}
+              className="link-underline text-body-sm text-ivory/70 hover:text-ivory"
+            >
+              {link.label} ↗
+            </a>
+          </li>
+        ))}
+      </ul>
     </article>
   )
 }

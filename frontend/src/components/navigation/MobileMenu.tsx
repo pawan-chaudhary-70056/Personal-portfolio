@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { NavLink } from 'react-router-dom'
 import { Container } from '@/components/layout/Container'
 import { navigation } from '@/content/navigation'
-import { profile } from '@/content/portfolio'
+import { usePortfolio } from '@/portfolio/usePortfolio'
+import { cn } from '@/utils/cn'
 
 interface MobileMenuProps {
   id: string
@@ -11,6 +13,8 @@ interface MobileMenuProps {
 
 export function MobileMenu({ id, open, onClose }: MobileMenuProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const { content } = usePortfolio()
+  const email = content?.profile?.publicEmail ?? null
 
   useEffect(() => {
     if (!open) {
@@ -45,25 +49,33 @@ export function MobileMenu({ id, open, onClose }: MobileMenuProps) {
       <Container className="py-6">
         <ul className="flex flex-col">
           {navigation.map((item) => (
-            <li key={item.href}>
-              <a
-                href={item.href}
+            <li key={item.to}>
+              <NavLink
+                to={item.to}
+                end={item.to === '/'}
                 onClick={onClose}
-                className="block border-b border-ivory/5 py-4 text-body-lg text-ivory transition-colors duration-150 ease-standard hover:text-gold"
+                className={({ isActive }) =>
+                  cn(
+                    'block border-b border-ivory/5 py-4 text-body-lg transition-colors duration-150 ease-standard',
+                    isActive ? 'text-gold' : 'text-ivory hover:text-gold',
+                  )
+                }
               >
                 {item.label}
-              </a>
+              </NavLink>
             </li>
           ))}
         </ul>
 
-        <a
-          href={`mailto:${profile.email}`}
-          onClick={onClose}
-          className="mt-6 inline-block text-body-sm text-gold link-underline"
-        >
-          {profile.email}
-        </a>
+        {email ? (
+          <a
+            href={`mailto:${email}`}
+            onClick={onClose}
+            className="mt-6 inline-block text-body-sm text-gold link-underline"
+          >
+            {email}
+          </a>
+        ) : null}
       </Container>
     </div>
   )

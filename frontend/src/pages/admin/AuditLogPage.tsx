@@ -67,11 +67,6 @@ export function AdminAuditLogPage() {
     return () => clearTimeout(timer)
   }, [search])
 
-  // Any filter change returns to the first page of the new result set.
-  useEffect(() => {
-    setPage(1)
-  }, [debouncedSearch, entityType, action, from, to])
-
   const fetcher = useCallback(
     (signal: AbortSignal) =>
       listAuditLogs(
@@ -105,27 +100,24 @@ export function AdminAuditLogPage() {
     onError: handleUnauthorized,
   })
 
-  // Keep the page in range after a deletion or a narrowing filter.
-  useEffect(() => {
-    if (data && page > data.pageCount) {
-      setPage(data.pageCount)
-    }
-  }, [data, page])
-
   const hasFilters =
     search !== '' || entityType !== '' || action !== '' || from !== '' || to !== ''
 
+  // Changing a filter always returns to the first page of the new results.
   function clearFilters() {
     setSearch('')
     setEntityType('')
     setAction('')
     setFrom('')
     setTo('')
+    setPage(1)
   }
 
   const events = data?.items ?? []
   const loading = status === 'loading'
-  const areaLabels = new Map(auditEntityTypes.map((type) => [type.value, type.label]))
+  const areaLabels = new Map<string, string>(
+    auditEntityTypes.map((type) => [type.value, type.label]),
+  )
 
   return (
     <>
@@ -163,7 +155,10 @@ export function AdminAuditLogPage() {
               id="audit-search"
               type="search"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setPage(1)
+              }}
               placeholder="Action, record, or administrator"
               className={`${inputClassName} mt-2`}
             />
@@ -179,7 +174,10 @@ export function AdminAuditLogPage() {
             <select
               id="audit-area"
               value={entityType}
-              onChange={(event) => setEntityType(event.target.value)}
+              onChange={(event) => {
+                setEntityType(event.target.value)
+                setPage(1)
+              }}
               className={`${selectClassName} mt-2`}
             >
               <option value="">All areas</option>
@@ -201,7 +199,10 @@ export function AdminAuditLogPage() {
             <select
               id="audit-action"
               value={action}
-              onChange={(event) => setAction(event.target.value)}
+              onChange={(event) => {
+                setAction(event.target.value)
+                setPage(1)
+              }}
               className={`${selectClassName} mt-2`}
             >
               <option value="">All actions</option>
@@ -229,7 +230,10 @@ export function AdminAuditLogPage() {
               type="date"
               value={from}
               max={to || undefined}
-              onChange={(event) => setFrom(event.target.value)}
+              onChange={(event) => {
+                setFrom(event.target.value)
+                setPage(1)
+              }}
               className={`${inputClassName} mt-2`}
             />
           </div>
@@ -246,7 +250,10 @@ export function AdminAuditLogPage() {
               type="date"
               value={to}
               min={from || undefined}
-              onChange={(event) => setTo(event.target.value)}
+              onChange={(event) => {
+                setTo(event.target.value)
+                setPage(1)
+              }}
               className={`${inputClassName} mt-2`}
             />
           </div>

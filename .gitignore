@@ -15,3 +15,7 @@ node_modules
 
 # Verification artifacts
 frontend/scripts/*.png
+
+# Uploaded media (development). Production mounts a persistent volume instead.
+backend/storage/
+backend/tests/.tmp-media/

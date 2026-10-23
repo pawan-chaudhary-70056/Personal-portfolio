@@ -1,15 +1,17 @@
-import { useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { AdminProject, ProjectPayload } from '@/@types/admin'
+import type { AdminProject, AdminProjectCategory, ProjectPayload } from '@/@types/admin'
+import { listProjectCategories } from '@/api/categories.api'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { FormField } from '@/components/forms/FormField'
+import { useApiResource } from '@/hooks/useApiResource'
 import {
   checkboxClassName,
   inputClassName,
   selectClassName,
   textareaClassName,
 } from '@/components/ui/fieldStyles'
-import { toFormValues, toProjectPayload, type ProjectFormValues } from '@/utils/projectPayload'
+import { toFormValues, toProjectPayload, type ProjectFormValues, type ScreenshotFormValues } from '@/utils/projectPayload'
 
 interface ProjectFormProps {
   project?: AdminProject
@@ -31,6 +33,19 @@ export function ProjectForm({
   cancelHref,
 }: ProjectFormProps) {
   const [values, setValues] = useState<ProjectFormValues>(() => toFormValues(project))
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  // Categories are managed separately; the select keeps projects inside the
+  // managed list while still showing a current value that was renamed.
+  const fetchCategories = useCallback(
+    (signal: AbortSignal) => listProjectCategories(signal),
+    [],
+  )
+  const { data: categories } = useApiResource<AdminProjectCategory[]>(fetchCategories, {
+    errorMessage: 'Categories could not be loaded.',
+  })
+  const categoryOptions = categories ?? []
+  const currentCategoryKnown = categoryOptions.some((option) => option.name === values.category)
 
   function update<K extends keyof ProjectFormValues>(key: K, value: ProjectFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }))
@@ -38,7 +53,55 @@ export function ProjectForm({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setLocalError(null)
+
+    // A partially filled screenshot row is a mistake, not an instruction to
+    // guess. Fail early with a message and the offending field focused.
+    const firstIncomplete = values.screenshots.findIndex((screenshot) => {
+      const hasContent = Boolean(
+        screenshot.url.trim() || screenshot.alt.trim() || screenshot.caption.trim(),
+      )
+      return hasContent && (!screenshot.url.trim() || !screenshot.alt.trim())
+    })
+
+    if (firstIncomplete >= 0) {
+      const screenshot = values.screenshots[firstIncomplete]
+      setLocalError(
+        'Each screenshot needs an image URL and alt text. Remove any row you do not need.',
+      )
+      document
+        .getElementById(`screenshot-${firstIncomplete}-${screenshot.url.trim() ? 'alt' : 'url'}`)
+        ?.focus()
+      return
+    }
+
     onSubmit(toProjectPayload(values))
+  }
+
+  function addScreenshot() {
+    setLocalError(null)
+    setValues((current) => ({
+      ...current,
+      screenshots: [...current.screenshots, { url: '', alt: '', caption: '' }],
+    }))
+  }
+
+  function removeScreenshot(index: number) {
+    setLocalError(null)
+    setValues((current) => ({
+      ...current,
+      screenshots: current.screenshots.filter((_screenshot, position) => position !== index),
+    }))
+  }
+
+  function updateScreenshot(index: number, key: keyof ScreenshotFormValues, value: string) {
+    setLocalError(null)
+    setValues((current) => ({
+      ...current,
+      screenshots: current.screenshots.map((screenshot, position) =>
+        position === index ? { ...screenshot, [key]: value } : screenshot,
+      ),
+    }))
   }
 
   const invalid = (field: string) => (fieldErrors[field] ? true : undefined)
@@ -46,7 +109,9 @@ export function ProjectForm({
 
   return (
     <form onSubmit={handleSubmit} noValidate className="mt-10 space-y-8">
-      {formError ? <InlineAlert tone="error">{formError}</InlineAlert> : null}
+      {formError || localError ? (
+        <InlineAlert tone="error">{localError ?? formError}</InlineAlert>
+      ) : null}
 
       <fieldset className="space-y-6">
         <legend className="text-caption tracking-[0.14em] text-muted-light uppercase">
@@ -118,14 +183,38 @@ export function ProjectForm({
         </FormField>
 
         <div className="grid gap-6 sm:grid-cols-2">
-          <FormField id="category" label="Category" error={fieldErrors.category}>
-            <input
+          <FormField
+            id="category"
+            label="Category"
+            hint="Managed in project categories."
+            error={fieldErrors.category}
+          >
+            <select
               id="category"
               value={values.category}
               onChange={(event) => update('category', event.target.value)}
               aria-invalid={invalid('category')}
-              className={inputClassName}
-            />
+              aria-describedby={describedBy('category')}
+              className={selectClassName}
+            >
+              {currentCategoryKnown || !values.category ? null : (
+                <option value={values.category}>{values.category}</option>
+              )}
+              {categoryOptions.length === 0 ? (
+                <option value={values.category}>{values.category || 'No categories yet'}</option>
+              ) : null}
+              {categoryOptions.map((category) => (
+                <option key={category.id} value={category.name}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <Link
+              to="/admin/project-categories"
+              className="mt-2 inline-block text-caption text-charcoal/70 underline underline-offset-4"
+            >
+              Manage categories
+            </Link>
           </FormField>
 
           <FormField
@@ -228,6 +317,92 @@ export function ProjectForm({
             />
           </FormField>
         </div>
+      </fieldset>
+
+      <fieldset className="space-y-6 border-t border-charcoal/15 pt-8">
+        <legend className="text-caption tracking-[0.14em] text-muted-light uppercase">
+          Screenshots
+        </legend>
+
+        <p className="text-caption text-muted-light">
+          Optional. Up to 8 images shown on the project page in list order. Each screenshot needs an
+          image URL and alt text.
+        </p>
+
+        {values.screenshots.length === 0 ? (
+          <p className="text-body-sm text-charcoal/70">No screenshots yet.</p>
+        ) : null}
+
+        {values.screenshots.map((screenshot, index) => (
+          <div key={index} className="border border-charcoal/15 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
+                Screenshot {index + 1}
+              </p>
+              <button
+                type="button"
+                onClick={() => removeScreenshot(index)}
+                aria-label={`Remove screenshot ${index + 1}`}
+                className="text-caption text-error underline underline-offset-4"
+              >
+                Remove
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-6 lg:grid-cols-2">
+              <FormField
+                id={`screenshot-${index}-url`}
+                label="Image URL"
+                required
+                hint="Starts with http:// or https://."
+              >
+                <input
+                  id={`screenshot-${index}-url`}
+                  type="url"
+                  value={screenshot.url}
+                  onChange={(event) => updateScreenshot(index, 'url', event.target.value)}
+                  className={inputClassName}
+                />
+              </FormField>
+
+              <FormField
+                id={`screenshot-${index}-alt`}
+                label="Alt text"
+                required
+                hint="Describe the image for screen readers."
+              >
+                <input
+                  id={`screenshot-${index}-alt`}
+                  value={screenshot.alt}
+                  onChange={(event) => updateScreenshot(index, 'alt', event.target.value)}
+                  className={inputClassName}
+                />
+              </FormField>
+
+              <FormField
+                id={`screenshot-${index}-caption`}
+                label="Caption"
+                hint="Optional. Shown beneath the image."
+              >
+                <input
+                  id={`screenshot-${index}-caption`}
+                  value={screenshot.caption}
+                  maxLength={200}
+                  onChange={(event) => updateScreenshot(index, 'caption', event.target.value)}
+                  className={inputClassName}
+                />
+              </FormField>
+            </div>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={addScreenshot}
+          className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+        >
+          Add screenshot
+        </button>
       </fieldset>
 
       <fieldset className="space-y-6 border-t border-charcoal/15 pt-8">

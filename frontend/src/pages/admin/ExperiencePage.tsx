@@ -9,11 +9,14 @@ import {
   type ExperienceListResponse,
 } from '@/api/content.api'
 import { useSession } from '@/auth/useSession'
+import { BulkActionsBar } from '@/components/admin/BulkActionsBar'
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog'
 import { VisibilityBadge } from '@/components/admin/VisibilityBadge'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { inputClassName } from '@/components/ui/fieldStyles'
 import { useApiResource } from '@/hooks/useApiResource'
+import { useBulkContentActions } from '@/hooks/useBulkContentActions'
+import { useBulkSelection } from '@/hooks/useBulkSelection'
 import { formatDateRange } from '@/utils/formatDate'
 import { setPageMetadata } from '@/utils/metadata'
 
@@ -104,7 +107,7 @@ export function AdminExperiencePage() {
 
     try {
       await deleteExperience(deleteTarget.id)
-      setNotice(`“${deleteTarget.role}” was permanently deleted.`)
+      setNotice(`“${deleteTarget.role}” was moved to the trash.`)
       setDeleteTarget(null)
       reload()
     } catch (caught) {
@@ -120,6 +123,17 @@ export function AdminExperiencePage() {
   }
 
   const entries = data?.experience ?? []
+  const selection = useBulkSelection(entries.map((entry) => entry.id))
+  const bulk = useBulkContentActions({
+    type: 'experience',
+    noun: 'role',
+    selectedIds: selection.selectedIds,
+    clearSelection: selection.clear,
+    reload,
+    onNotice: setNotice,
+    onError: setActionError,
+    onUnauthorized: handleUnauthorized,
+  })
   const loading = status === 'loading'
   const showEmpty = !loading && entries.length === 0
   const error = actionError ?? (status === 'error' ? loadError : null)
@@ -172,6 +186,16 @@ export function AdminExperiencePage() {
         />
       </div>
 
+      <BulkActionsBar
+        count={selection.selectedIds.length}
+        noun="role"
+        busy={bulk.busy}
+        onPublish={bulk.publish}
+        onUnpublish={bulk.unpublish}
+        onDelete={bulk.requestDelete}
+        onClear={selection.clear}
+      />
+
       <div className="mt-8">
         {loading && !data ? (
           <p role="status" className="text-body-sm text-muted-light">
@@ -200,6 +224,15 @@ export function AdminExperiencePage() {
               </caption>
               <thead>
                 <tr className="border-b border-charcoal/20">
+                  <th scope="col" className="w-10 py-3 pr-4">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all experience entries"
+                      checked={selection.allSelected}
+                      onChange={selection.toggleAll}
+                      className="size-4 accent-gold"
+                    />
+                  </th>
                   <th
                     scope="col"
                     className="py-3 pr-4 text-caption tracking-[0.14em] text-muted-light uppercase"
@@ -235,6 +268,15 @@ export function AdminExperiencePage() {
               <tbody>
                 {entries.map((entry) => (
                   <tr key={entry.id} className="border-b border-charcoal/10 align-top">
+                    <td className="py-4 pr-4">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${entry.role}`}
+                        checked={selection.isSelected(entry.id)}
+                        onChange={() => selection.toggle(entry.id)}
+                        className="size-4 accent-gold"
+                      />
+                    </td>
                     <td className="py-4 pr-4">
                       <Link
                         to={`/admin/experience/${entry.id}`}
@@ -297,14 +339,27 @@ export function AdminExperiencePage() {
         title="Delete this experience entry?"
         description={
           deleteTarget
-            ? `“${deleteTarget.role}” at ${deleteTarget.organization} will be permanently deleted. This cannot be undone. To keep it private instead, hide it.`
+            ? `“${deleteTarget.role}” at ${deleteTarget.organization} will be moved to the trash and hidden from the portfolio. You can restore it from Trash. To keep it private instead, hide it.`
             : ''
         }
-        confirmLabel="Delete entry"
+        confirmLabel="Move to trash"
         destructive
         busy={deleting}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={bulk.deleteOpen}
+        title="Move these roles to the trash?"
+        description={`${selection.selectedIds.length} selected role${
+          selection.selectedIds.length === 1 ? '' : 's'
+        } will be hidden from the portfolio and can be restored from Trash.`}
+        confirmLabel="Move to trash"
+        destructive
+        busy={bulk.busy}
+        onConfirm={bulk.confirmDelete}
+        onCancel={bulk.cancelDelete}
       />
     </>
   )

@@ -30,10 +30,12 @@ async function main(): Promise<void> {
 
   const passwordHash = await hashPassword(password)
 
+  // Provisioning always yields an owner: a deployment with only editors could
+  // not reach administrator management or the security settings.
   const admin = await prisma.admin.upsert({
     where: { email },
-    create: { email, name, passwordHash },
-    update: { name, passwordHash, isActive: true },
+    create: { email, name, passwordHash, role: 'OWNER' },
+    update: { name, passwordHash, isActive: true, role: 'OWNER' },
   })
 
   console.log(`Admin ready: ${admin.email} (id: ${admin.id})`)
