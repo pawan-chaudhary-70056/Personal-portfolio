@@ -12,6 +12,8 @@
  * afterwards, so the built bundle is what gets verified.
  */
 import { spawn } from 'node:child_process'
+import { createWriteStream, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -36,12 +38,28 @@ function run(script) {
   })
 }
 
+const previewLogPath = join(tmpdir(), 'portfolio-preview.log')
+
 function startPreview() {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  return spawn(npm, ['run', 'preview', '--', '--port', '4173', '--strictPort'], {
-    cwd: join(scriptsDir, '..'),
-    stdio: 'ignore',
-  })
+  // Bind to 127.0.0.1 explicitly: on CI runners `localhost` can resolve to ::1
+  // first, which leaves http://127.0.0.1:4173 unreachable even though the
+  // server started — the same failure mode that forced --host 127.0.0.1 on the
+  // dev server in ci.yml. Output is captured so a failed start is diagnosable.
+  const log = createWriteStream(previewLogPath, { flags: 'w' })
+  const child = spawn(
+    npm,
+    ['run', 'preview', '--', '--port', '4173', '--strictPort', '--host', '127.0.0.1'],
+    {
+      cwd: join(scriptsDir, '..'),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+  // Piped rather than passed as fds: a fresh WriteStream's fd is still null
+  // when spawn() validates the stdio array.
+  child.stdout.pipe(log)
+  child.stderr.pipe(log)
+  return child
 }
 
 const missing = []
@@ -74,6 +92,11 @@ if (!(await reachable(PREVIEW_URL))) {
 
   if (!(await reachable(PREVIEW_URL))) {
     console.error(`Preview server did not start on ${PREVIEW_URL}.`)
+    try {
+      console.error(readFileSync(previewLogPath, 'utf8').trimEnd())
+    } catch {
+      console.error('(no preview output captured)')
+    }
     preview.kill()
     process.exit(1)
   }
