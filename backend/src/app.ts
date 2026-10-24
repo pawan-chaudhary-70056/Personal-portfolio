@@ -103,12 +103,26 @@ export function createApp(options: CreateAppOptions = {}): Express {
     const indexHtml = path.join(frontendDist, 'index.html')
 
     if (existsSync(indexHtml)) {
-      app.use(express.static(frontendDist, { index: false }))
+      // Cache parity with frontend/nginx.conf: the shell must revalidate so a
+      // new deployment is picked up, while content-hashed assets are immutable.
+      app.use(
+        express.static(frontendDist, {
+          index: false,
+          setHeaders: (res, filePath) => {
+            if (filePath.endsWith('.html')) {
+              res.setHeader('Cache-Control', 'no-cache')
+            } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+            }
+          },
+        }),
+      )
       app.use((req, res, next) => {
         if (req.method !== 'GET' || req.path.startsWith('/api')) {
           next()
           return
         }
+        res.setHeader('Cache-Control', 'no-cache')
         res.sendFile(indexHtml)
       })
     }

@@ -646,7 +646,7 @@ Future features should be introduced based on demonstrated value rather than unn
 
 **Current stage:** Implemented and verified for the documented scope.
 
-The public site, the admin dashboard, the REST API, the Prisma schema, and the operational scripts exist and are exercised by 161 backend tests, 36 frontend tests, and the Playwright verifiers (250 admin checks plus 73 homepage checks on a fresh database).
+The public site, the admin dashboard, the REST API, the Prisma schema, and the operational scripts exist and are exercised by 165 backend tests, 39 frontend tests, and the Playwright verifiers (255 admin checks plus 73 homepage checks on a fresh database).
 
 Implemented:
 
@@ -660,7 +660,7 @@ Not implemented (kept out of every “implemented” claim):
 - Blog/notes, downloadable CV, and general import/export.
 - Responsive image variants and object storage.
 - Automated backup verification or monitoring, and cross-module global search.
-- A live production deployment; deployment procedures and container definitions exist, but no environment is recorded here.
+- A live production deployment; deployment procedures, container definitions, and a Render blueprint validated against Render's schema exist, but no environment is recorded here.
 
 A feature must not be described as completed until it has been implemented and verified. The requirements in `docs/02`–`docs/14` describe intended behaviour; where the current build differs, the section that documents the implemented behaviour takes precedence.
 

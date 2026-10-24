@@ -1,0 +1,51 @@
+# Render blueprint — single-origin production deployment.
+#
+# One web service runs the API container (Dockerfile.render), which also
+# serves the built SPA, so the site and /api share the origin the SameSite=Lax
+# session cookie requires. One instance keeps `prisma migrate deploy` safe to
+# run on start.
+#
+# Deploy: Render Dashboard → New → Blueprint → this repository.
+# Full steps, including seeding the owner account, are in
+# docs/12-deployment-and-maintenance.md.
+#
+# Free plan notes:
+#   - Instances spin down after ~15 min of inactivity (first request is slow).
+#   - Uploaded media lives on the container filesystem and is replaced on
+#     every deploy; attach a disk at MEDIA_ROOT on a paid plan to keep it.
+#   - REGION IS IMMUTABLE after creation — change it below before deploying.
+services:
+  - type: web
+    name: portfolio
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render
+    region: singapore
+    plan: free
+    healthCheckPath: /api/health
+    # Migrations run once per deploy before the app starts (single instance,
+    # so two instances cannot race the migration).
+    dockerCommand: npx prisma migrate deploy && node dist/index.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-db
+          property: connectionString
+      # Render generates a 256-bit value; the API requires at least 32
+      # characters. Rotating it invalidates all sessions and encrypted TOTP
+      # secrets, so leave it alone after the first deploy.
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      # The Render edge terminates TLS and sets X-Forwarded-For; the API then
+      # trusts that single hop (backend/src/app.ts) for rate limiting.
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: MEDIA_ROOT
+        value: /app/backend/storage/media
+
+databases:
+  - name: portfolio-db
+    plan: free
+    databaseName: portfolio
+    user: portfolio

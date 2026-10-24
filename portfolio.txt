@@ -1,21 +1,35 @@
- Area                                                                                │ Status                                │ Est.                   │
+┌─────────────────────────────────────────────────────────────────────────────────────┬───────────────────────────────────────┬────────────────────────┐
+│ Area                                                                                │ Status                                │ Est.                   │
 ├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
 │ Public site (Home, About, Projects, detail, Experience, Contact, 404)               │ Complete, verified by the homepage    │ 100%                   │
 │                                                                                     │ Playwright verifier (73 checks)       │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
 │ Admin dashboard (16+ modules: overview, profile, hero portrait, projects, skills,   │ Complete, verified by the admin       │ 100%                   │
-│ media, inbox, settings, roles, 2FA, sessions, audit, analytics, health, trash,      │ Playwright verifier (250 checks)      │                        │
-│ revisions, scheduling)                                                              │                                       │                        │
-│ Backend API, Prisma schema, auth/CSRF/rate limits/audit, media pipeline             │ Complete — 161 backend tests + 9      │ 100%                   │
+│ media, inbox, settings, roles, 2FA, sessions, audit with sign-in monitoring,        │ Playwright verifier (255 checks)      │                        │
+│ analytics, health, trash, revisions, scheduling)                                    │                                       │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
+│ Backend API, Prisma schema, auth/CSRF/rate limits/audit, media pipeline             │ Complete - 165 backend tests + 10     │ 100%                   │
 │                                                                                     │ frontend test files                   │                        │
-│ Content workflow (draft/publish/preview, revisions w/ diff+restore, trash,          │ Complete                              │ 100%                   │
-│ scheduled publishing, bulk actions)                                                 │                                       │                        │
-│ Testing & QA                                                                        │ Unit + integration + E2E verifiers    │ ~95% (no CI-run        │
-│                                                                                     │ exist and are wired into verify:all   │ evidence I can confirm │
-│                                                                                     │                                       │ right now)             │
-│ Deployment                                                                          │ Docker/CI configs + procedures        │ ~70%                   │
-│                                                                                     │ documented, but no live production    │                        │
-│                                                                                     │ deployment exists                     │                        │
-│ Security hardening                                                                  │ 2FA, sessions, roles, validation      │ ~85%                   │
-│                                                                                     │ done; monitoring/alerting absent      │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
+│ Content workflow (draft/publish/preview, revisions w/ diff+restore, trash, scheduled│ Complete                              │ 100%                   │
+│ publishing, bulk actions)                                                           │                                       │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
+│ Testing & QA                                                                        │ Unit + integration + E2E verifiers    │ ~100%                  │
+│                                                                                     │ wired into verify:all; all four CI    │                        │
+│                                                                                     │ jobs reproduced locally (typecheck,   │                        │
+│                                                                                     │ tests, builds, 328 E2E checks green); │                        │
+│                                                                                     │ GitHub Actions itself not yet run     │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
+│ Deployment                                                                          │ Render blueprint (render.yaml)        │ ~90%                   │
+│                                                                                     │ schema-validated; single-container    │                        │
+│                                                                                     │ image built and rehearsed end-to-end  │                        │
+│                                                                                     │ (17 migrations, SPA serving, health,  │                        │
+│                                                                                     │ admin seeding); compose configs + all │                        │
+│                                                                                     │ three images verified; live deploy    │                        │
+│                                                                                     │ pending a Render account              │                        │
+├─────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────┼────────────────────────┤
+│ Security hardening                                                                  │ 2FA, sessions, roles, validation, and │ ~92%                   │
+│                                                                                     │ failed-login monitoring done; external│                        │
+│                                                                                     │ alerting and email delivery still     │                        │
+│                                                                                     │ absent                                │                        │
 └─────────────────────────────────────────────────────────────────────────────────────┴───────────────────────────────────────┴────────────────────────┘
-

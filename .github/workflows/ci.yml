@@ -193,3 +193,6 @@ jobs:
 
       - name: Build web image
         run: docker build --tag portfolio-web:ci ./frontend
+
+      - name: Build Render image (single-container production)
+        run: docker build --tag portfolio-render:ci --file Dockerfile.render .

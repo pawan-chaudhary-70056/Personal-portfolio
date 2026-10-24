@@ -1,0 +1,9 @@
+# Applies only to root-context builds (Dockerfile.render). The per-service
+# images keep using backend/.dockerignore and frontend/.dockerignore.
+**/node_modules
+**/dist
+**/.env*
+.git
+.github
+.qa
+docs
