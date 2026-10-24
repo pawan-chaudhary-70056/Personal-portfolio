@@ -2,12 +2,14 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma.js'
 import { recordAudit } from '../lib/audit.js'
 import type { RequestContext } from '../lib/auth-types.js'
+import { profilePortraitUrl } from '../lib/media-url.js'
 import { validationError } from '../lib/validate.js'
 import {
   profileValuesSchema,
   type ProfileValues,
   type UpdateProfileInput,
 } from '../schemas/profile.schema.js'
+import { requireMediaAssetId } from './media.service.js'
 
 /** Enforces the singleton in application code; there is no create endpoint. */
 const PROFILE_ID = 'primary'
@@ -23,6 +25,7 @@ const PUBLIC_PROFILE_SELECT = {
   linkedinUrl: true,
   githubUrl: true,
   portraitUrl: true,
+  portraitMediaId: true,
   portraitAlt: true,
 } satisfies Prisma.ProfileSelect
 
@@ -31,10 +34,23 @@ export async function getProfile() {
 }
 
 export async function getPublicProfile() {
-  return prisma.profile.findUnique({
+  const profile = await prisma.profile.findUnique({
     where: { id: PROFILE_ID },
     select: PUBLIC_PROFILE_SELECT,
   })
+
+  if (!profile) {
+    return null
+  }
+
+  // An uploaded portrait is exposed as its public media URL; the reference
+  // itself stays administrative.
+  const { portraitMediaId, ...rest } = profile
+
+  return {
+    ...rest,
+    portraitUrl: portraitMediaId ? profilePortraitUrl(portraitMediaId) : rest.portraitUrl,
+  }
 }
 
 function storedValues(profile: Awaited<ReturnType<typeof getProfile>>): ProfileValues {
@@ -48,6 +64,7 @@ function storedValues(profile: Awaited<ReturnType<typeof getProfile>>): ProfileV
     linkedinUrl: profile?.linkedinUrl ?? null,
     githubUrl: profile?.githubUrl ?? null,
     portraitUrl: profile?.portraitUrl ?? null,
+    portraitMediaId: profile?.portraitMediaId ?? null,
     portraitAlt: profile?.portraitAlt ?? null,
   }
 }
@@ -66,6 +83,15 @@ export async function updateProfile(input: UpdateProfileInput, ctx: RequestConte
   }
 
   const data = merged.data
+
+  // The dashboard offers two portrait inputs; the stored record keeps exactly
+  // one source so the public result is unambiguous.
+  if (data.portraitMediaId) {
+    await requireMediaAssetId(data.portraitMediaId, 'portraitMediaId')
+    data.portraitUrl = null
+  } else if (data.portraitUrl) {
+    data.portraitMediaId = null
+  }
 
   return prisma.$transaction(async (tx) => {
     const profile = await tx.profile.upsert({

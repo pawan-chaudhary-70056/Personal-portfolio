@@ -27,14 +27,18 @@ export interface AdministratorListResponse {
 
 export interface AdminScreenshot {
   id: string
-  url: string
+  /** External URL, or null when the image comes from the media library. */
+  url: string | null
+  /** Uploaded gallery asset; an alternative to `url`. */
+  mediaId: string | null
   alt: string
   caption: string | null
   sortOrder: number
 }
 
 export interface ScreenshotPayload {
-  url: string
+  url: string | null
+  mediaId: string | null
   alt: string
   caption: string | null
 }
@@ -52,6 +56,8 @@ export interface AdminProject {
   liveUrl: string | null
   repositoryUrl: string | null
   imageUrl: string | null
+  /** Uploaded cover from the media library; an alternative to `imageUrl`. */
+  coverMediaId: string | null
   imageAlt: string | null
   screenshots: AdminScreenshot[]
   status: ProjectStatus
@@ -82,6 +88,7 @@ export interface ProjectPayload {
   liveUrl: string | null
   repositoryUrl: string | null
   imageUrl: string | null
+  coverMediaId?: string | null
   imageAlt: string | null
   screenshots: ScreenshotPayload[]
   status: ProjectStatus
@@ -211,7 +218,7 @@ export interface AdminMedia {
   altText: string | null
   createdAt: string
   updatedAt: string
-  /** True while the homepage still references the asset. */
+  /** True while published or draft content still references the asset. */
   referenced: boolean
 }
 
@@ -253,6 +260,35 @@ export interface AuditLogPage {
   pageCount: number
 }
 
+export interface LoginMonitoringSource {
+  ipAddress: string | null
+  failures: number
+  lastFailureAt: string
+}
+
+export interface LoginMonitoringFailure {
+  id: string
+  action: string
+  /** Account the attempt targeted, when the attempt reached an account. */
+  email: string | null
+  reason: string | null
+  ipAddress: string | null
+  userAgent: string | null
+  createdAt: string
+}
+
+export interface LoginMonitoring {
+  /** Rolling window length in days, ending now. */
+  windowDays: number
+  totals: {
+    failedLogins: number
+    failedMfaCodes: number
+    successfulLogins: number
+  }
+  bySource: LoginMonitoringSource[]
+  recent: LoginMonitoringFailure[]
+}
+
 export interface AdminSession {
   /** Short, non-reversible fingerprint. Never the raw session identifier. */
   id: string
@@ -279,6 +315,22 @@ export interface OverviewResponse {
   recentEvents: AuditEvent[]
 }
 
+export interface AdminMfaStatus {
+  enabled: boolean
+  enabledAt: string | null
+  /** A secret has been generated but the first code has not been confirmed. */
+  pendingSetup: boolean
+  recoveryCodesRemaining: number
+}
+
+export interface MfaSetup {
+  secret: string
+  otpauthUri: string
+  issuer: string
+  digits: number
+  periodSeconds: number
+}
+
 export interface AdminProfile {
   id: string
   displayName: string
@@ -290,6 +342,7 @@ export interface AdminProfile {
   linkedinUrl: string | null
   githubUrl: string | null
   portraitUrl: string | null
+  portraitMediaId: string | null
   portraitAlt: string | null
   createdAt: string
   updatedAt: string

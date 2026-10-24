@@ -148,6 +148,118 @@ describe('audit log', () => {
   })
 })
 
+describe('sign-in monitoring', () => {
+  async function failedLogin(email: string, password: string): Promise<void> {
+    const agent = request.agent(app)
+    const token = await csrfToken(agent)
+    await agent
+      .post('/api/auth/login')
+      .set('x-csrf-token', token)
+      .set('user-agent', 'Attacker Browser')
+      .send({ email, password })
+      .expect(401)
+  }
+
+  it('requires authentication and offers no write operations', async () => {
+    await request(app).get('/api/admin/login-monitoring').expect(401)
+
+    const agent = await signedInAgent()
+    const token = await csrfToken(agent)
+    await agent
+      .post('/api/admin/login-monitoring')
+      .set('x-csrf-token', token)
+      .send({})
+      .expect(404)
+  })
+
+  it('aggregates failed sign-ins, their sources, and the recent attempts', async () => {
+    const agent = await signedInAgent()
+
+    // One attempt against an unknown account and one wrong password.
+    await failedLogin('nobody@example.com', 'wrong-password')
+    await failedLogin(TEST_ADMIN_EMAIL, 'also-wrong')
+
+    const response = await agent.get('/api/admin/login-monitoring?days=7').expect(200)
+
+    expect(response.body.windowDays).toBe(7)
+    expect(response.body.totals).toEqual({
+      failedLogins: 2,
+      failedMfaCodes: 0,
+      // The owner's own sign-in for this test is counted as a success.
+      successfulLogins: 1,
+    })
+
+    // Both failures came from the test runner's address.
+    expect(response.body.bySource).toHaveLength(1)
+    expect(response.body.bySource[0].failures).toBe(2)
+    expect(typeof response.body.bySource[0].ipAddress).toBe('string')
+
+    expect(response.body.recent).toHaveLength(2)
+    const [newest, older] = response.body.recent
+    expect(newest).toMatchObject({
+      action: 'AUTH_LOGIN_FAILED',
+      email: TEST_ADMIN_EMAIL,
+      reason: 'bad_password',
+      userAgent: 'Attacker Browser',
+    })
+    expect(older).toMatchObject({
+      email: 'nobody@example.com',
+      reason: 'unknown_account',
+    })
+
+    // The report is a fixed shape: audit metadata and session state stay out.
+    expect(Object.keys(newest).sort()).toEqual([
+      'action',
+      'createdAt',
+      'email',
+      'id',
+      'ipAddress',
+      'reason',
+      'userAgent',
+    ])
+    expect(JSON.stringify(response.body)).not.toContain('passwordHash')
+  })
+
+  it('excludes events outside the selected window', async () => {
+    const agent = await signedInAgent()
+
+    await prisma.auditEvent.create({
+      data: {
+        action: 'AUTH_LOGIN_FAILED',
+        entityType: 'Admin',
+        metadata: { email: 'old@example.com', reason: 'bad_password' },
+        ipAddress: '198.51.100.7',
+        createdAt: new Date(Date.now() - 8 * 86_400_000),
+      },
+    })
+
+    const week = await agent.get('/api/admin/login-monitoring?days=7').expect(200)
+    expect(week.body.totals.failedLogins).toBe(0)
+    expect(week.body.bySource).toEqual([])
+    expect(week.body.recent).toEqual([])
+
+    const month = await agent.get('/api/admin/login-monitoring?days=30').expect(200)
+    expect(month.body.totals.failedLogins).toBe(1)
+    expect(month.body.bySource).toEqual([
+      {
+        ipAddress: '198.51.100.7',
+        failures: 1,
+        lastFailureAt: expect.any(String),
+      },
+    ])
+    expect(month.body.recent[0].email).toBe('old@example.com')
+  })
+
+  it('validates the window parameter', async () => {
+    const agent = await signedInAgent()
+
+    await agent.get('/api/admin/login-monitoring?days=0').expect(400)
+    await agent.get('/api/admin/login-monitoring?days=31').expect(400)
+    await agent.get('/api/admin/login-monitoring?days=abc').expect(400)
+    await agent.get('/api/admin/login-monitoring?days=7&extra=1').expect(400)
+  })
+})
+
 describe('session management', () => {
   it('requires authentication for listing and revocation', async () => {
     await request(app).get('/api/admin/sessions').expect(401)
@@ -304,6 +416,7 @@ describe('administrator roles', () => {
     '/api/admin/health',
     '/api/admin/analytics',
     '/api/admin/audit-logs',
+    '/api/admin/login-monitoring',
     '/api/admin/settings',
     '/api/admin/sessions',
     '/api/admin/administrators',

@@ -178,8 +178,8 @@ export function AdminMediaPage() {
         <h1 className="mt-3 text-h2">Media library</h1>
         <p className="mt-3 max-w-2xl text-body-sm text-charcoal/70">
           Uploaded images and their descriptions. Files are validated on the server and stored
-          outside the database. An image still used by the homepage cannot be deleted until it
-          is replaced or removed there.
+          outside the database. An image still used by a project, the profile, or the homepage
+          cannot be deleted until it is replaced or removed there.
         </p>
       </header>
 
@@ -308,7 +308,9 @@ export function AdminMediaPage() {
                         {formatDateTime(asset.createdAt)}
                       </p>
                       {asset.referenced ? (
-                        <p className="mt-1 text-caption text-gold-ink">Used on the homepage</p>
+                        <p className="mt-1 text-caption text-gold-ink">
+                          In use — remove it from that content first
+                        </p>
                       ) : null}
                     </div>
 
@@ -375,7 +377,7 @@ export function AdminMediaPage() {
           deleteTarget
             ? `“${deleteTarget.originalFilename}” will be removed from storage and cannot be restored.${
                 deleteTarget.referenced
-                  ? ' It is still used by the homepage, so the server will refuse the deletion.'
+                  ? ' It is still used by the portfolio, so the server will refuse the deletion.'
                   : ''
               }`
             : ''

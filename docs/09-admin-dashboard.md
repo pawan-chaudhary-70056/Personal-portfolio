@@ -94,7 +94,7 @@ The following routes are recommended. Implement only routes supported by the act
 
 | Route | Purpose |
 |---|---|
-| `/admin/login` | Administrator login |
+| `/admin/login` | Administrator login, including the second-factor step |
 | `/admin` | Dashboard overview |
 | `/admin/profile` | Profile management |
 | `/admin/projects` | Project management |
@@ -108,7 +108,8 @@ The following routes are recommended. Implement only routes supported by the act
 | `/admin/homepage` | Homepage section configuration |
 | `/admin/messages` | Contact inbox |
 | `/admin/settings` | Supported site and SEO settings |
-| `/admin/audit-logs` | Administrative audit history |
+| `/admin/audit-logs` | Administrative audit history with a sign-in monitoring summary |
+| `/admin/security` | Two-factor authentication and recovery codes for the signed-in account |
 | `/admin/sessions` | Session management, when supported |
 | `/admin/revisions` | Revision history, when supported |
 | `/admin/trash` | Recoverable deleted content, when supported |
@@ -190,8 +191,9 @@ The login page should provide:
 - Loading state during submission.
 - Generic invalid-credentials messages.
 - Safe handling of server and network errors.
+- A second step that asks for a six-digit authenticator code or a recovery code when the backend answers `{ mfaRequired: true }`, with the option to start over with a different account.
 
-The page must not reveal whether a specific email address is registered.
+The page must not reveal whether a specific email address is registered. A pending challenge is not an authenticated session; the dashboard must not render until the code is accepted.
 
 ### 6.2 Authentication workflow
 
@@ -233,6 +235,20 @@ After logout, cached private data must not remain accessible through the dashboa
 - Do not place secrets in frontend code.
 
 See `docs/10-security.md`.
+
+### 6.6 Two-factor authentication
+
+Route: `/admin/security`
+
+Any signed-in administrator can manage their own second factor:
+
+- Show whether MFA is enabled, when it was enabled, and how many recovery codes remain.
+- Start enrolment: display the account name, the secret key, and the `otpauth://` URI for manual entry, then confirm with a six-digit code.
+- After enabling, display the ten recovery codes once, with a copy button and a warning that they are not shown again.
+- Regenerate recovery codes by confirming the password and a current authenticator code; every old code stops working.
+- Disable MFA by confirming the password and a current code or a recovery code.
+
+Enabling, disabling, or regenerating codes signs the account out of its other sessions; the current browser stays signed in. The page never receives a stored secret or an existing recovery code, only the one-time values produced by the action the administrator just performed.
 
 ## 7. Dashboard Overview
 
@@ -557,9 +573,17 @@ Every operation writes an audit event (`MEDIA_UPLOADED`, `MEDIA_UPDATED`,
 `MEDIA_DELETED`). The page shows loading, empty, and error states, and signs the
 administrator out when a request returns `401`.
 
-Associating assets with project records is not implemented yet: project images
-and profile images still accept validated external URLs, and only the homepage
-portrait is chosen from uploaded media.
+Uploaded assets can now be attached to content. The project form, the homepage
+hero form, and the profile form each offer **Choose from library**, which opens a
+paginated, searchable picker (`MediaPicker`) over `/api/admin/media`; selecting an
+image fills the record's asset reference and clears the external URL field, and
+typing a URL clears a previous pick. The server enforces one source per record
+and refuses to delete an asset that a project, a gallery screenshot, the
+homepage portrait, or the profile still uses (409). External URLs remain
+supported for projects and the profile. Each gallery row has its own **Choose
+from library** button and an upload field, so screenshots can be added without
+leaving the project form. Rows can be dragged by their handle, or moved with the
+up/down buttons, to change the gallery's display order before saving.
 
 ### 17.2 Upload workflow
 
@@ -812,6 +836,8 @@ Requirements:
 - Support filtering and pagination.
 - Avoid exposing tokens, passwords, or unnecessary personal information.
 - Do not provide ordinary edit or delete actions for audit events.
+
+Above the event table the page shows a sign-in monitoring summary, served by `GET /api/admin/login-monitoring` (owner-only): rolling-window totals for failed sign-ins, failed verification codes, and successful sign-ins; failed sign-ins grouped by source address with counts and last-seen times; and the most recent failures with the targeted account, reason, source address, and a sanitized device description. The window selector offers the last 24 hours, 7 days, or 30 days. The summary reads the same append-only audit records as the log itself, so it has no separate storage or write path.
 
 ### 25.2 Session management
 
@@ -1072,6 +1098,7 @@ The page manages the portrait shown on the right of the public homepage hero. It
 ### 35.1 Controls
 
 - **Portrait upload:** file input accepting JPEG, PNG, and WebP; the browser checks type and size before requesting an upload. The selected file is previewed locally before it is uploaded.
+- **Choose from library:** opens the shared media picker and uses an existing library image as the draft portrait instead of uploading a duplicate. The library description fills the alt text when it is empty, and the previously selected draft asset is removed when nothing else uses it.
 - **Draft preview:** the page renders the same hero portrait component used publicly, driven by draft values and the authenticated media endpoint, labelled as not public.
 - **Alt text:** required when the portrait is visible; enforced on publish.
 - **Visibility:** shows or hides the portrait on the public homepage after publishing.

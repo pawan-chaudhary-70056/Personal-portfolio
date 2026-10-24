@@ -160,6 +160,7 @@ export async function buildSnapshot(
         liveUrl: project.liveUrl,
         repositoryUrl: project.repositoryUrl,
         imageUrl: project.imageUrl,
+        coverMediaId: project.coverMediaId,
         imageAlt: project.imageAlt,
         status: project.status,
         featured: project.featured,
@@ -167,6 +168,7 @@ export async function buildSnapshot(
         publishAt: project.publishAt?.toISOString() ?? null,
         screenshots: project.screenshots.map((screenshot) => ({
           url: screenshot.url,
+          mediaId: screenshot.mediaId,
           alt: screenshot.alt,
           caption: screenshot.caption,
           sortOrder: screenshot.sortOrder,

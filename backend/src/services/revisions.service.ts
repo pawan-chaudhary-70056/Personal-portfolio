@@ -129,8 +129,12 @@ function screenshots(value: unknown) {
 
   return value.map((item) => {
     const screenshot = item as Record<string, unknown>
+    const mediaId = nullableValue(screenshot.mediaId)
+
     return {
-      url: stringValue(screenshot.url),
+      // A library image has no URL in the snapshot; the id is the source.
+      url: mediaId ? null : stringValue(screenshot.url) || null,
+      mediaId,
       alt: stringValue(screenshot.alt),
       caption: nullableValue(screenshot.caption),
     }
@@ -181,6 +185,7 @@ export async function restoreRevision(id: string, ctx: RequestContext) {
         liveUrl: nullableValue(snapshot.liveUrl),
         repositoryUrl: nullableValue(snapshot.repositoryUrl),
         imageUrl: nullableValue(snapshot.imageUrl),
+        coverMediaId: nullableValue(snapshot.coverMediaId),
         imageAlt: nullableValue(snapshot.imageAlt),
         status: status === 'PUBLISHED' || status === 'ARCHIVED' ? status : 'DRAFT',
         featured: snapshot.featured === true,

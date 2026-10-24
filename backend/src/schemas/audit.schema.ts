@@ -62,3 +62,17 @@ export const listAuditLogsQuerySchema = z
   })
 
 export type ListAuditLogsQuery = z.infer<typeof listAuditLogsQuerySchema>
+
+/**
+ * Query contract for `GET /api/admin/login-monitoring`.
+ *
+ * `days` selects a rolling window ending now, bounded so the aggregate read
+ * over the append-only trail stays cheap.
+ */
+export const loginMonitoringQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(30).default(7),
+  })
+  .strict()
+
+export type LoginMonitoringQuery = z.infer<typeof loginMonitoringQuerySchema>

@@ -287,6 +287,7 @@ Additional pages, such as a blog or notes section, should only be added if inclu
 | `/admin/messages` | Contact inbox |
 | `/admin/settings` | Supported site and SEO settings |
 | `/admin/audit-logs` | Authorized audit history |
+| `/admin/security` | Two-factor authentication and recovery codes for the signed-in account |
 | `/admin/sessions` | Session management where supported |
 
 Revision history, trash, analytics, backups, and system-health pages should be exposed only when their backend features and permissions exist.

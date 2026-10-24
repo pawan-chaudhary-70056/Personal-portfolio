@@ -25,6 +25,7 @@ import { AdminProjectsPage } from '@/pages/admin/ProjectsPage'
 import { AdminSkillCategoriesPage } from '@/pages/admin/SkillCategoriesPage'
 import { AdminSkillEditPage } from '@/pages/admin/SkillEditPage'
 import { AdminSchedulingPage } from '@/pages/admin/SchedulingPage'
+import { AdminSecurityPage } from '@/pages/admin/SecurityPage'
 import { AdminSessionsPage } from '@/pages/admin/SessionsPage'
 import { AdminSettingsPage } from '@/pages/admin/SettingsPage'
 import { AdminSkillsPage } from '@/pages/admin/SkillsPage'
@@ -75,6 +76,7 @@ export const adminRoutes: RouteObject[] = [
           { path: '/admin/certifications/new', element: <AdminCertificationEditPage /> },
           { path: '/admin/certifications/:id', element: <AdminCertificationEditPage /> },
           { path: '/admin/messages', element: <AdminMessagesPage /> },
+          { path: '/admin/security', element: <AdminSecurityPage /> },
         ],
       },
     ],

@@ -71,3 +71,10 @@ export const homepageDraftSchema = z
   })
 
 export type HomepageDraftInput = z.infer<typeof homepageDraftSchema>
+
+/** Selecting an existing library image as the homepage draft portrait. */
+export const selectPortraitSchema = z
+  .object({ mediaId: recordIdSchema })
+  .strict()
+
+export type SelectPortraitInput = z.infer<typeof selectPortraitSchema>

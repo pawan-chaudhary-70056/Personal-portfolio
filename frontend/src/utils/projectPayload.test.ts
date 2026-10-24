@@ -38,10 +38,11 @@ describe('toFormValues', () => {
 
     expect(values.technologies).toBe('React, Node')
     expect(values.screenshots).toEqual([
-      { url: 'https://example.com/shot.png', alt: 'Shot', caption: '' },
+      { url: 'https://example.com/shot.png', mediaId: '', alt: 'Shot', caption: '' },
     ])
     expect(values.sortOrder).toBe('3')
     expect(values.status).toBe('PUBLISHED')
+    expect(values.coverMediaId).toBe('')
   })
 })
 
@@ -74,6 +75,28 @@ describe('toProjectPayload', () => {
     expect('slug' in payload).toBe(false)
   })
 
+  it('sends a picked library cover and clears the external URL', () => {
+    const payload = toProjectPayload({
+      ...base,
+      imageUrl: '',
+      coverMediaId: ' asset-123 ',
+    })
+
+    expect(payload.coverMediaId).toBe('asset-123')
+    expect(payload.imageUrl).toBeNull()
+  })
+
+  it('gives a typed URL precedence over a stale library pick', () => {
+    const payload = toProjectPayload({
+      ...base,
+      imageUrl: ' https://example.com/cover.png ',
+      coverMediaId: 'asset-123',
+    })
+
+    expect(payload.imageUrl).toBe('https://example.com/cover.png')
+    expect(payload.coverMediaId).toBeNull()
+  })
+
   it('keeps an explicit slug and parses sortOrder', () => {
     const payload = toProjectPayload({ ...base, slug: 'my-slug', sortOrder: '7' })
 
@@ -85,15 +108,34 @@ describe('toProjectPayload', () => {
     const payload = toProjectPayload({
       ...base,
       screenshots: [
-        { url: '', alt: '', caption: '' },
-        { url: ' https://example.com/a.png ', alt: ' Alt ', caption: '' },
-        { url: 'https://example.com/b.png', alt: 'B', caption: 'Caption' },
+        { url: '', mediaId: '', alt: '', caption: '' },
+        { url: ' https://example.com/a.png ', mediaId: '', alt: ' Alt ', caption: '' },
+        { url: 'https://example.com/b.png', mediaId: '', alt: 'B', caption: 'Caption' },
       ],
     })
 
     expect(payload.screenshots).toEqual([
-      { url: 'https://example.com/a.png', alt: 'Alt', caption: null },
-      { url: 'https://example.com/b.png', alt: 'B', caption: 'Caption' },
+      { url: 'https://example.com/a.png', mediaId: null, alt: 'Alt', caption: null },
+      { url: 'https://example.com/b.png', mediaId: null, alt: 'B', caption: 'Caption' },
+    ])
+  })
+
+  it('sends a picked library image instead of the screenshot URL', () => {
+    const payload = toProjectPayload({
+      ...base,
+      screenshots: [
+        {
+          url: 'https://example.com/stale.png',
+          mediaId: 'asset-9',
+          alt: 'Dashboard',
+          caption: '',
+        },
+        { url: '', mediaId: '', alt: '', caption: 'Caption only' },
+      ],
+    })
+
+    expect(payload.screenshots).toEqual([
+      { url: null, mediaId: 'asset-9', alt: 'Dashboard', caption: null },
     ])
   })
 })

@@ -3,6 +3,7 @@ import { prisma } from '../db/prisma.js'
 import { recordAudit } from '../lib/audit.js'
 import type { RequestContext } from '../lib/auth-types.js'
 import { conflict, notFound } from '../lib/errors.js'
+import { projectCoverUrl, projectScreenshotUrl } from '../lib/media-url.js'
 import { slugify } from '../lib/slug.js'
 import type {
   CreateProjectInput,
@@ -14,11 +15,36 @@ import {
   requireProjectCategoryId,
 } from './categories.service.js'
 import { recordContentRevision } from './content.service.js'
+import { requireMediaAssetId } from './media.service.js'
 
 /** Category names are stored on a relation but exposed as the documented string. */
 function withCategoryName<T extends { category: { name: string } }>(project: T) {
   const { category, ...rest } = project
   return { ...rest, category: category.name }
+}
+
+/**
+ * Public projection: an uploaded cover or gallery image is exposed as its public
+ * media URL, so clients never need to know whether an image came from the
+ * library or an external URL. The internal references stay administrative.
+ */
+function withPublicImages<
+  T extends {
+    coverMediaId: string | null
+    imageUrl: string | null
+    screenshots: Array<{ mediaId: string | null; url: string | null } & Record<string, unknown>>
+  },
+>(project: T) {
+  const { coverMediaId, screenshots, ...rest } = project
+
+  return {
+    ...rest,
+    imageUrl: coverMediaId ? projectCoverUrl(coverMediaId) : project.imageUrl,
+    screenshots: screenshots.map(({ mediaId, ...screenshot }) => ({
+      ...screenshot,
+      url: mediaId ? projectScreenshotUrl(mediaId) : screenshot.url,
+    })),
+  }
 }
 
 const PUBLIC_PROJECT_SELECT = {
@@ -33,14 +59,47 @@ const PUBLIC_PROJECT_SELECT = {
   liveUrl: true,
   repositoryUrl: true,
   imageUrl: true,
+  coverMediaId: true,
   imageAlt: true,
   featured: true,
   publishedAt: true,
   screenshots: {
-    select: { id: true, url: true, alt: true, caption: true, sortOrder: true },
+    select: {
+      id: true,
+      url: true,
+      mediaId: true,
+      alt: true,
+      caption: true,
+      sortOrder: true,
+    },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
   },
 } satisfies Prisma.ProjectSelect
+
+/**
+ * Validates each picked gallery asset and normalizes the row so the database
+ * never holds two sources. The field path points at the offending screenshot,
+ * which is what the dashboard form maps back onto its rows.
+ */
+async function screenshotRows(
+  screenshots: Array<{ url: string | null; mediaId: string | null; alt: string; caption: string | null }>,
+) {
+  return Promise.all(
+    screenshots.map(async (screenshot, index) => {
+      const mediaId = screenshot.mediaId
+        ? await requireMediaAssetId(screenshot.mediaId, `screenshots.${index}.mediaId`)
+        : null
+
+      return {
+        url: mediaId ? null : screenshot.url,
+        mediaId,
+        alt: screenshot.alt,
+        caption: screenshot.caption,
+        sortOrder: index,
+      }
+    }),
+  )
+}
 
 async function resolveSlug(
   inputSlug: string | undefined,
@@ -83,6 +142,10 @@ export async function createProject(input: CreateProjectInput, ctx: RequestConte
   const slug = await resolveSlug(input.slug, input.title)
   const status = input.status ?? 'DRAFT'
   const now = new Date()
+  const coverMediaId = input.coverMediaId
+    ? await requireMediaAssetId(input.coverMediaId, 'coverMediaId')
+    : null
+  const gallery = await screenshotRows(input.screenshots ?? [])
 
   return prisma.$transaction(async (tx) => {
     const categoryId = await findOrCreateProjectCategoryId(tx, input.category ?? 'Full-stack')
@@ -98,21 +161,16 @@ export async function createProject(input: CreateProjectInput, ctx: RequestConte
         technologies: input.technologies ?? [],
         liveUrl: input.liveUrl ?? null,
         repositoryUrl: input.repositoryUrl ?? null,
-        imageUrl: input.imageUrl ?? null,
+        // The schema rejects both at once; picking an asset clears the URL.
+        imageUrl: coverMediaId ? null : (input.imageUrl ?? null),
+        coverMediaId,
         imageAlt: input.imageAlt ?? null,
         status,
         featured: input.featured ?? false,
         sortOrder: input.sortOrder ?? 0,
         publishedAt: status === 'PUBLISHED' ? now : null,
         archivedAt: status === 'ARCHIVED' ? now : null,
-        screenshots: {
-          create: (input.screenshots ?? []).map((screenshot, index) => ({
-            url: screenshot.url,
-            alt: screenshot.alt,
-            caption: screenshot.caption,
-            sortOrder: index,
-          })),
-        },
+        screenshots: { create: gallery },
       },
       include: { category: { select: { name: true } } },
     })
@@ -159,7 +217,22 @@ export async function updateProject(
   if (input.technologies !== undefined) data.technologies = input.technologies
   if (input.liveUrl !== undefined) data.liveUrl = input.liveUrl
   if (input.repositoryUrl !== undefined) data.repositoryUrl = input.repositoryUrl
-  if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
+  if (input.coverMediaId !== undefined) {
+    data.coverMedia = input.coverMediaId
+      ? {
+          connect: {
+            id: await requireMediaAssetId(input.coverMediaId, 'coverMediaId'),
+          },
+        }
+      : { disconnect: true }
+
+    if (input.coverMediaId) data.imageUrl = null
+  }
+  if (input.imageUrl !== undefined) {
+    data.imageUrl = input.imageUrl
+    // Switching back to an external URL detaches the uploaded cover.
+    if (input.imageUrl) data.coverMedia = { disconnect: true }
+  }
   if (input.imageAlt !== undefined) data.imageAlt = input.imageAlt
   if (input.featured !== undefined) data.featured = input.featured
   if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder
@@ -168,12 +241,7 @@ export async function updateProject(
   if (input.screenshots !== undefined) {
     data.screenshots = {
       deleteMany: {},
-      create: input.screenshots.map((screenshot, index) => ({
-        url: screenshot.url,
-        alt: screenshot.alt,
-        caption: screenshot.caption,
-        sortOrder: index,
-      })),
+      create: await screenshotRows(input.screenshots),
     }
   }
 
@@ -339,7 +407,7 @@ export async function listPublishedProjects(category?: string) {
     select: PUBLIC_PROJECT_SELECT,
   })
 
-  return projects.map(withCategoryName)
+  return projects.map((project) => withCategoryName(withPublicImages(project)))
 }
 
 /**
@@ -356,5 +424,5 @@ export async function getPublishedProjectBySlug(slug: string) {
     throw notFound('Project')
   }
 
-  return withCategoryName(project)
+  return withCategoryName(withPublicImages(project))
 }

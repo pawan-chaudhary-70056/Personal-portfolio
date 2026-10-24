@@ -11,7 +11,7 @@ The system consists of two connected applications:
 
 The portfolio owner must be able to manage website content through the admin dashboard without manually editing source code or directly modifying database records.
 
-All supported content-management operations must be connected to the backend API, database, and media storage where applicable. Published changes must appear on the appropriate public portfolio sections automatically after successful processing and any required cache refresh.
+All content-management operations go through the backend API, database, and media storage where applicable. Published changes appear on the public portfolio immediately: public content responses are not cached, and uploaded media uses immutable URLs.
 
 The project combines a luxury-inspired visual identity, meaningful animations, responsive design, maintainable software architecture, and security-focused engineering practices.
 
@@ -62,11 +62,11 @@ Its scope includes:
 
 - **Home:** Premium introduction, professional headline, profile image, summary, featured projects, selected skills, and primary calls to action.
 - **About:** Professional background, biography, interests relevant to work, and career direction.
-- **Skills:** Categorized technical and professional skills.
-- **Projects:** Project descriptions, technologies, categories, screenshots, repository links, live-demo links, and featured-project presentation.
+- **Skills:** Categorized technical and professional skills, presented on the About page.
+- **Projects:** Project descriptions, technologies, categories, screenshots, repository links, live-demo links, and featured-project presentation. A project cover and every gallery screenshot come from the media library or an external URL.
 - **Experience:** Employment history, internships, responsibilities, achievements, dates, and relevant links where applicable.
-- **Education:** Academic qualifications, institutions, study periods, and supporting details.
-- **Certifications:** Certification title, issuing organization, issue date, credential identifier or verification link, and optional certificate image or document.
+- **Education:** Academic qualifications, institutions, study periods, and supporting details, presented on the About page.
+- **Certifications:** Certification title, issuing organization, issue date, credential identifier, and verification link. Certificate images and documents are not supported.
 - **Contact:** Public contact information and a validated contact form.
 - **Navigation and footer:** Configurable navigation links, social links, and footer content.
 - **Responsive navigation:** Consistent usability across desktop, tablet, and mobile devices.
@@ -76,7 +76,7 @@ Its scope includes:
 
 The homepage must not depend on hardcoded portfolio content when the relevant information is intended to be managed through the dashboard.
 
-The final navigation and page structure may be refined during implementation, but the public experience must remain consistent with the approved design system.
+The implemented navigation is Home, About, Projects, Experience, and Contact. Skills, education, and certifications share the About page rather than each taking a top-level route, which keeps the site compact; the project detail route is `/projects/:slug` and unknown routes render the not-found page.
 
 ### 4.2 Admin Dashboard
 
@@ -86,67 +86,62 @@ It must provide a centralized interface with a persistent sidebar, organized mod
 
 #### 4.2.1 Dashboard Overview and Analytics
 
-The dashboard overview should provide useful information, including:
+The dashboard provides:
 
-- Content totals and publishing status.
-- Project and category counts.
-- Contact-message counts, including unread messages.
+- Project counts by status (total, draft, published, archived, featured).
+- Total and published counts for skills, experience, education, and certifications.
 - Recent administrative activity.
-- Available visitor and project-engagement analytics.
-- Date-range filters for supported analytics.
-- System status indicators and relevant warnings.
+- Page-view analytics: daily aggregate counts per public path for a selectable range.
+- A read-only health panel for the owner.
 
-Analytics must be based on real collected data. Visitor trends and project popularity must not be fabricated or presented as real measurements unless an actual collection mechanism is implemented.
+Analytics are recorded from real requests and stored as daily aggregates with no visitor identifier, IP address, cookie, or referrer. There is no dedicated project-engagement or conversion analysis, and no metric is estimated or fabricated.
 
 #### 4.2.2 Personal Profile Management
 
-The administrator must be able to:
+The administrator can:
 
-- Create or initialize the profile record where applicable.
-- View and edit personal details.
+- Initialize and edit the single profile record.
 - Update name, professional title, contact information, and social links.
-- Create, edit, and update the professional biography and summary.
-- Upload, replace, update, and remove the profile picture.
-- Manage other supported profile fields.
-- Preview relevant profile changes.
-- Save drafts where supported and publish approved changes.
+- Create, edit, and update the professional biography and headline.
+- Choose the profile portrait from the media library or link an external image, and edit its description.
+- Preview the profile card while editing.
 - Validate required fields and receive clear feedback.
 
-The system must define how the initial profile is created if the application expects one primary profile.
+The profile is a singleton created on the first successful save, and saves are published immediately — there is no profile draft. Uploaded portraits are served from an immutable public URL.
 
 #### 4.2.3 Work Experience Management
 
-The administrator must be able to:
+The administrator can:
 
 - Add new experience records.
 - View existing experience records.
 - Edit and update any supported field.
 - Delete or move records to trash according to the deletion policy.
-- Manage employer, role, location, employment type, dates, responsibilities, and achievements.
-- Indicate whether a role is current, where applicable.
+- Manage employer, role, location, employment type, dates, and the description field.
+- Indicate whether a role is current.
 - Reorder records for public presentation.
-- Control draft and published status where applicable.
+- Control public visibility and scheduled publication.
 
 #### 4.2.4 Education Management
 
-The administrator must be able to:
+The administrator can:
 
 - Add, view, edit, update, and delete education records.
-- Manage institution, qualification, field of study, dates, descriptions, and supporting links.
+- Manage institution, qualification, field of study, dates, and description.
 - Reorder education entries.
-- Preview changes and control public visibility.
+- Control public visibility and scheduled publication.
 
 #### 4.2.5 Project Management
 
-The administrator must be able to:
+The administrator can:
 
 - Create, view, edit, update, and delete projects.
 - Manage title, slug, description, project details, technologies, and categories.
-- Upload, replace, reorder, and remove project images.
+- Choose a cover from the media library or link an external image, and manage gallery screenshots in display order. Each screenshot can be uploaded, picked from the library, or linked as a validated external URL.
 - Manage repository and live-demo links.
 - Set featured-project status.
 - Configure display order and publication status.
-- Preview the project before publishing.
+- Review the saved project on its public URL; there is no separate project draft preview.
 - Search, filter, sort, and paginate project records.
 - Apply supported bulk operations to selected projects.
 
@@ -154,179 +149,148 @@ A project must not appear in public project listings merely because a draft reco
 
 #### 4.2.6 Skills and Skill Categories
 
-The administrator must be able to:
+The administrator can:
 
 - Create, view, edit, update, and delete skills.
 - Create, view, edit, update, and delete skill categories.
 - Assign skills to appropriate categories.
-- Update skill names, descriptions, proficiency information, and display order where supported.
+- Update skill names, descriptions, and display order.
 - Prevent invalid category references.
-- Control which skills and categories are publicly displayed.
+- Control which skills and categories are publicly displayed, and schedule a publication time.
 
 #### 4.2.7 Project Categories
 
-The administrator must be able to:
+The administrator can:
 
-- Create, view, edit, update, and delete project categories.
-- Assign and reassign projects to categories.
-- Update category names, descriptions, slugs, and display order where supported.
-- Search and filter category records.
-- Handle category deletion safely when projects still reference a category.
+- Create, rename, reorder, and delete project categories.
+- Assign and reassign projects to categories through the project form.
+- Prevent duplicate category names and derive unique slugs.
+- Reject deletion while any project still uses the category, with a clear message.
 
-The system must use an explicit relationship policy when deleting categories: reassignment, removal of the relationship, or rejection until dependencies are resolved.
+Categories are managed as a compact list rather than a searchable table, because the collection is small.
 
 #### 4.2.8 Certification Management
 
-The administrator must be able to:
+The administrator can:
 
 - Create, view, edit, update, and delete certifications.
 - Manage certificate title, issuing organization, dates, credential ID, and verification URL.
-- Upload, replace, and remove certificate images or documents where supported.
 - Set display order and publication status.
-- Validate external links and uploaded files appropriately.
+- Validate external links. Certificate images and documents are not supported; the record stores credential text and a verification URL only.
 
 #### 4.2.9 Media Library
 
-The dashboard should provide centralized media management for supported images and documents.
+The dashboard provides centralized management for uploaded images (JPEG, PNG, and WebP).
 
-Features include:
+- Uploading, listing, searching, viewing, and deleting images.
+- Associating images with the profile portrait and project covers. Certifications do not reference media yet.
+- Editing alternative text.
+- Validating the actual bytes, size, and dimensions on the server, with SVG rejected.
+- Previewing images in the library and in the picker before attaching them to content.
+- Flagging assets still referenced by content and refusing to delete them.
+- Keeping failed uploads from affecting existing content.
 
-- Uploading, listing, viewing, replacing, and deleting media.
-- Associating media with profiles, projects, certifications, and other supported content.
-- Editing alternative text and supported metadata.
-- Validating file type, size, and content.
-- Previewing images before saving.
-- Detecting media that is no longer referenced by content.
-- Preventing accidental removal of media that is still in use.
-- Handling failed uploads and broken media references safely.
-
-Actual image storage must use an appropriate storage implementation. Database records may store metadata and storage references rather than entire files.
+Binary data is stored on disk outside PostgreSQL; the database stores metadata and references only. The storage interface is provider-neutral, but only local disk is implemented.
 
 #### 4.2.10 Homepage and Appearance Controls
 
-The administrator should be able to manage supported website presentation settings, including:
+The administrator can manage website presentation through:
 
-- Homepage section visibility.
-- Section ordering.
-- Featured-project selection and ordering.
-- Profile headline, summary, and call-to-action content.
-- Navigation and footer content.
-- Supported theme or appearance presets.
-- Previewing changes before publication.
-- Publishing approved website configuration changes.
+- Homepage section visibility and ordering.
+- Featured-project selection, limited to published projects and a fixed maximum.
+- The hero portrait, its alt text, visibility, and bounded effect settings (tilt, animation, floating, enabled).
+- A preview of the draft hero and layout, using the same component the public site renders.
+- Publishing the approved draft, with an indicator while unpublished changes exist.
 
-Appearance controls must be limited to the options explicitly supported by the design system; arbitrary changes must not be allowed to break the site's visual consistency or accessibility.
+Profile headline and biography are edited on the Profile page, and site-wide title and social metadata on the Settings page. Navigation and footer content are defined in the frontend and cannot be edited from the dashboard. There are no arbitrary theme or appearance presets; effect values are bounded to the documented safe ranges.
 
 #### 4.2.11 Draft, Publishing, and Preview Workflow
 
-Supported content modules should provide a clear publishing workflow.
+Every content module has a clear publication path.
 
-Features include:
+- Projects carry `DRAFT`, `PUBLISHED`, and `ARCHIVED` statuses; skills, experience, education, and certifications use a published flag. New records start private.
+- The homepage keeps a draft and a published snapshot, published atomically; the draft is previewed with the real hero component before publishing.
+- Projects, skills, experience, education, and certifications can be scheduled with a future `publishAt`; a worker publishes due records and clears the schedule.
+- Publication timestamps and status badges are shown in the dashboard, and bulk publish/unpublish acts on selections.
+- Only published, non-deleted records reach public endpoints.
 
-- Saving drafts.
-- Editing drafts without exposing them publicly.
-- Previewing content before publication.
-- Publishing and unpublishing content.
-- Featuring supported projects.
-- Displaying publication status and timestamps.
-- Preventing unpublished or deleted content from appearing publicly.
-- Supporting scheduled publishing only if the required scheduling infrastructure is implemented.
-
-The dashboard must clearly distinguish saved content from published content.
+The dashboard distinguishes saved drafts from published content, and the homepage reports when the draft differs from the published state.
 
 #### 4.2.12 Contact Inbox
 
-The administrator must be able to:
+The administrator can:
 
 - View submitted contact messages.
 - Open individual message details.
 - Mark messages as read or unread.
 - Archive messages.
-- Search, filter, and paginate messages.
-- Identify and manage suspected spam.
-- Delete messages according to the retention policy.
+- Search, filter, and paginate messages, and export the filtered inbox as CSV.
+- Delete messages after confirmation.
 - View relevant timestamps and message status.
-- Configure supported notification preferences.
 
-Contact messages must remain private and accessible only to authorized administrators.
+Contact messages must remain private and accessible only to authorized administrators. Spam classification and email notifications are not implemented.
 
 #### 4.2.13 Website Settings and SEO
 
-Supported settings should include:
+Implemented settings:
 
-- Website title and description.
-- Homepage metadata.
-- Page-specific SEO metadata where applicable.
-- Open Graph and social-sharing metadata.
-- Favicon and supported branding assets.
-- Public contact details.
-- Social media links.
-- Navigation and footer configuration.
-- Supported URL slugs and redirects where implemented.
-- SEO preview information.
+- Site title and default description.
+- Canonical URL and social-sharing image URL.
 
-Settings must be validated and safely applied to the public website.
+Public pages derive their titles, descriptions, and Open Graph metadata from published content plus these defaults; the profile supplies public contact details and social links. The canonical URL setting currently feeds the homepage's Open Graph URL only — no `<link rel="canonical">` is emitted. Favicon upload, branding assets, navigation/footer editing, redirects, and a dedicated SEO preview screen are not implemented. Settings are validated and applied immediately.
 
 #### 4.2.14 Search, Filtering, and Bulk Actions
 
 The dashboard should support efficient content discovery and management through:
 
-- Module-specific search.
-- Global search across supported content.
-- Filtering by category, publication status, date, and other relevant fields.
-- Sorting by supported columns.
-- Pagination for large collections.
+- Module-specific search. Cross-module global search is not implemented.
+- Filtering by category and publication status (and by day range for analytics).
+- Sorting by updated, created, title, or explicit display order, depending on the module.
+- Pagination for every collection, including media and the inbox.
 - Multi-select operations.
-- Supported bulk publish, unpublish, archive, delete, and category-assignment actions.
-- Confirmation for destructive or high-impact operations.
+- Bulk publish, unpublish, and move-to-trash actions, with confirmation for destructive operations.
 
-Bulk operations must validate each operation and provide clear feedback about successful and failed records.
+Bulk operations validate each record and report how many succeeded or failed; they act on at most 50 records per request.
 
 #### 4.2.15 Revision History and Trash
 
-Where implemented, the dashboard should provide:
+The dashboard provides:
 
-- Revision history for supported content.
-- Previous-version comparison.
-- Restoration of a previous version.
-- Temporary trash for eligible deleted records.
-- Restore and permanent-delete operations.
-- Clear retention rules.
-- Audit records for important restoration and deletion events.
+- Revision history for projects, skills, experience, education, and certifications.
+- Comparison of any two revisions, and a diff against the preceding one.
+- Restoration of a revision through the same update path as a normal edit, including audit and a new revision.
+- Trash for deleted content, with restore and permanent deletion.
+- Audit records for restores, permanent deletions, and scheduled changes.
 
-Permanent deletion must be distinguishable from temporary deletion. The interface must explain when an operation cannot be reversed.
+Trash has no timed retention: records stay until they are restored or permanently deleted. Permanent deletion is visually distinct and the confirmation states that it cannot be undone.
 
 #### 4.2.16 Security and Session Management
 
-Security-related administrative features should include:
+Implemented administrative security features:
 
-- Secure login and logout.
-- Password-change workflow.
-- Session information and supported session revocation.
-- Login history and failed-login monitoring.
-- Optional multi-factor authentication if implemented.
-- Audit logs for important administrative operations.
-- Appropriate rate limits and abuse protections.
-- Secure handling of session expiration and reauthentication.
+- Secure login and logout with Argon2id hashing and server-side sessions.
+- Two-factor authentication (TOTP with recovery codes), self-service from `/admin/security`.
+- Owner-initiated password resets for other administrators, which revoke that account's sessions. There is no self-service password-change screen.
+- Session listing with revocation of individual sessions.
+- Audit logging of sign-ins, password resets, and content changes.
+- Failed-login monitoring on the activity log: rolling-window totals for failed sign-ins, failed verification codes, and successful sign-ins, failures grouped by source address, and the most recent failures with the targeted account and reason.
+- Login rate limiting and CSRF protection on state-changing requests.
+- Idle session expiry with rolling renewal.
 
 Security controls must be enforced by the backend, not merely by hiding interface elements.
 
 #### 4.2.17 System Health and Maintenance
 
-The dashboard may provide operational information such as:
+The dashboard provides read-only operational information:
 
 - Application and API health.
-- Database connectivity status.
-- Media-storage status.
-- Recent application errors.
-- Backup status and last successful backup time.
+- Database connectivity and media-storage checks.
 - Storage usage where measurable.
-- Maintenance status.
-- Relevant warnings and notifications.
+- Relevant warnings.
 
 Health checks must not expose database credentials, secrets, internal infrastructure details, or sensitive stack traces to unauthorized users.
 
-A displayed backup status must come from a real backup process or monitoring source.
+Backup status is not shown: backups run outside the application, and the health panel states that it cannot confirm one completed.
 
 ### 4.3 Backend and Database
 
@@ -349,7 +313,7 @@ Its scope includes:
 - Audit-log recording.
 - Revision and trash operations where implemented.
 - Analytics collection and retrieval where implemented.
-- Rate limiting and structured application logging.
+- Rate limiting and console-based error logging.
 - Environment-based configuration.
 - Database constraints and appropriate indexes.
 - Health checks and operational monitoring.
@@ -358,23 +322,17 @@ All content changes must be persisted through the backend. Frontend-only modific
 
 ### 4.4 Database and Media Storage
 
-The data model must support the relationships and workflows required by the project.
+The implemented schema contains:
 
-Core entities may include:
+- `Admin` and `Session` for authentication.
+- `Profile` and `SiteSettings` singletons, plus `HomepageSettings` for the hero draft and published state.
+- `Experience`, `Education`, and `Certification`.
+- `Project`, `ProjectCategory`, and `ProjectScreenshot`; project technologies are a string array on the project.
+- `Skill` and `SkillCategory`.
+- `MediaAsset` and its references from `Project`, `Profile`, and `HomepageSettings`.
+- `ContactMessage`, `AuditEvent`, `ContentRevision`, and `PageViewDaily`.
 
-- Administrator and session records.
-- Profile and website settings.
-- Work experience and education.
-- Projects, project categories, and project technology relationships.
-- Skills and skill categories.
-- Certifications.
-- Media assets and their content relationships.
-- Contact messages.
-- Audit events.
-- Content revisions and trash metadata where required.
-- Analytics records where collection is enabled.
-
-The final schema must be consistent with the implemented Prisma models, API contracts, deletion policies, and publishing rules.
+Soft deletion is a nullable `deletedAt` on the five revisioned content types; permanent deletion removes the row. See `docs/08-database-schema.md` for fields, constraints, and migration history.
 
 ### 4.5 Testing and Quality Assurance
 
@@ -393,10 +351,9 @@ The project will include:
 - Authentication and authorization tests.
 - Validation and error-handling tests.
 - Revision, trash, and restore tests where implemented.
-- Responsive layout and accessibility checks.
-- Dependency vulnerability checks.
-- Static analysis and code-quality checks.
-- Performance and relevant security tests.
+- Responsive layout checks at 1440px and 390px, and axe WCAG A/AA scans on public and admin pages.
+- Static analysis: TypeScript type checking and oxlint.
+- Dependency auditing is documented as a release step but is not automated in CI.
 
 ## 5. Out of Scope
 
@@ -413,7 +370,7 @@ The initial release will not include the following unless explicitly approved:
 - Multi-tenant architecture.
 - Unnecessary microservices or distributed infrastructure.
 
-Optional features such as scheduled publishing, MFA, visitor analytics, revision restoration, and automated backup monitoring must be implemented only when their technical dependencies and operational requirements are defined.
+Scheduled publishing, visitor analytics, and revision comparison and restoration are implemented as ordinary product features. Multi-factor authentication and automated backup monitoring remain unimplemented and should be added only once their technical dependencies and operational requirements are defined.
 
 ## 6. Target Audience
 
@@ -457,7 +414,7 @@ The administrative dashboard is intended for the portfolio owner and any explici
 
 Animations should improve navigation, feedback, and visual continuity without becoming the focus of the website.
 
-Planned patterns include:
+Implemented patterns include:
 
 - Subtle hero-section entrance effects.
 - Short text and content reveal transitions.
@@ -469,26 +426,25 @@ Planned patterns include:
 
 Animations must remain smooth and restrained. The application must respect `prefers-reduced-motion` and avoid unnecessary motion on mobile devices.
 
-## 9. Proposed Technology Stack
+## 9. Technology Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React, TypeScript, Vite |
-| Styling | Tailwind CSS |
-| Backend | Node.js, Express, TypeScript |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Validation | Zod |
-| Authentication | Server-side sessions and Argon2id password hashing |
+| Frontend | React 19, TypeScript, Vite 8, React Router 7 |
+| Styling | Tailwind CSS 4 with design tokens |
+| Backend | Node.js 24, Express 5, TypeScript |
+| Database | PostgreSQL 18 |
+| ORM | Prisma 6 with committed migrations |
+| Validation | Zod schemas on the server; client-side checks mirror the same rules before submitting |
+| Authentication | Server-side PostgreSQL-backed sessions and Argon2id password hashing |
 | Unit and component testing | Vitest and React Testing Library |
-| End-to-end testing | Playwright |
-| Local development | Docker Compose |
-| CI/CD | GitHub Actions |
-| Security and quality checks | Dependency auditing, CodeQL, and appropriate DAST tooling |
-| Media storage | A validated local or object-storage implementation appropriate to deployment |
-| Monitoring | Application health checks and appropriate logging/monitoring integrations |
+| End-to-end verification | Playwright scripts in `frontend/scripts/` |
+| Local development | Docker Compose for PostgreSQL; npm scripts for the API and SPA |
+| CI | GitHub Actions: backend typecheck/tests/build, frontend lint/tests/build, both verifiers, and container image builds |
+| Media storage | Local disk under `MEDIA_ROOT`, behind a provider-neutral `store/read/remove` interface |
+| Monitoring | `/api/health`, the owner-only health panel, and console error logging |
 
-These technologies are proposed architectural choices. Exact versions, configuration, and production suitability must be verified during implementation.
+Versions are pinned in the two `package.json` files and their lockfiles; the CI workflow fixes the Node.js version at 24. There is no server-side content cache and no CodeQL or DAST job in CI, so these are not claimed here.
 
 ## 10. Security Objectives
 
@@ -572,7 +528,7 @@ Hiding dashboard controls in the frontend is not an authorization mechanism. The
 
 ## 12. Success Criteria
 
-The project will be considered successful when:
+Success criteria:
 
 1. Visitors can navigate the portfolio and understand the owner's professional background.
 2. All approved public sections display accurate and consistent content.
@@ -589,7 +545,7 @@ The project will be considered successful when:
 13. Forms and API endpoints validate untrusted input and handle failures safely.
 14. Search, filtering, pagination, and supported bulk actions work correctly.
 15. Contact inbox and administrative history features protect private data.
-16. Optional analytics and system-health indicators display real data from implemented sources.
+16. Analytics and system-health indicators display real data from implemented sources.
 17. Important user journeys are covered by automated tests.
 18. The project passes its configured build, type-check, lint, and relevant test checks.
 19. Dependencies and application security are checked before production release.
@@ -597,6 +553,8 @@ The project will be considered successful when:
 21. The codebase can support future features without unnecessary architectural complexity.
 
 ## 13. Development Phases
+
+Phases 1–7 are complete and covered by the test suites and the end-to-end verifiers. Phase 8 procedures are documented and the container images build in CI, but this repository does not record a live production deployment.
 
 ### Phase 1 — Requirements and Design
 
@@ -647,9 +605,9 @@ The project will be considered successful when:
 - Add draft, publish, unpublish, and preview workflows.
 - Add homepage controls and supported website settings.
 - Implement contact inbox and SEO settings.
-- Add global search and supported bulk actions.
-- Implement revision history and trash/restore where specified.
-- Add analytics, notifications, and operational indicators where their data sources are available.
+- Add per-module search and supported bulk actions (no cross-module global search).
+- Implement revision history, comparison, restore, and trash/restore.
+- Add analytics, scheduled publishing, roles, and operational indicators.
 
 ### Phase 7 — Security, Testing, and Quality Assurance
 
@@ -658,7 +616,7 @@ The project will be considered successful when:
 - Test media uploads and deletion behavior.
 - Run unit, integration, API, and end-to-end tests.
 - Review accessibility, responsiveness, performance, and SEO.
-- Run dependency and application security checks.
+- Run the dependency and application security checks documented in `docs/11-testing-and-qa.md`.
 - Resolve high-priority defects before release.
 
 ### Phase 8 — Deployment and Maintenance
@@ -672,31 +630,39 @@ The project will be considered successful when:
 
 ## 14. Future Enhancements
 
-Potential future improvements include:
+The following are genuinely unimplemented. Analytics, scheduled publishing, revision comparison and restoration, administrator roles, and project categories were on earlier lists and are now built.
 
-- A blog or technical-notes section.
-- Advanced project categorization and filtering.
+- A blog or technical-notes section (`/notes`).
 - A downloadable CV with version management.
-- Privacy-conscious visitor analytics.
-- Enhanced content preview and revision comparison.
-- Scheduled publishing.
-- Optional multi-factor authentication.
-- Improved accessibility and performance analysis.
-- Additional administrative roles only if a genuine requirement emerges.
-- Import/export workflows for supported data.
-- Additional monitoring and recovery automation.
+- Import/export workflows beyond the contact-message CSV export.
+- Generated responsive image variants and object storage behind the existing storage interface.
+- Automated backup verification, monitoring, and recovery automation. The health panel states that backups run outside the application and cannot confirm one completed.
+- Cross-module global search, and richer public project filtering (technology, year) beyond the API's category filter.
+- Notification preferences for contact messages; no email delivery is configured.
 
 Future features should be introduced based on demonstrated value rather than unnecessary technical complexity.
 
 ## 15. Project Status
 
-**Current stage:** Requirements and documentation refinement.
+**Current stage:** Implemented and verified for the documented scope.
 
-The project requirements, visual direction, technology stack, architecture, core dashboard workflows, and advanced administrative features are being defined before or alongside implementation.
+The public site, the admin dashboard, the REST API, the Prisma schema, and the operational scripts exist and are exercised by 161 backend tests, 36 frontend tests, and the Playwright verifiers (250 admin checks plus 73 homepage checks on a fresh database).
 
-A feature must not be described as completed until it has been implemented and verified.
+Implemented:
 
-The documentation describes intended behavior, not proof that the current codebase already implements every feature. Requirements, schemas, APIs, and tests must be aligned with the actual application as development progresses.
+- Public routes: Home, About (profile, skills, education, certifications), Projects, project detail, Experience, Contact, and the not-found page.
+- Admin modules: overview, profile, homepage hero portrait with draft/publish and effect controls, projects and project categories, skills and skill categories, experience, education, certifications, media library, contact inbox, site settings, administrators with Owner/Editor roles, account security (TOTP two-factor authentication with recovery codes, failed-login monitoring on the activity log), sessions, audit log, analytics, health, trash, revisions with comparison and restore, and scheduling.
+- Cross-cutting behaviour: bulk publish/unpublish/trash, search, filtering, sorting, pagination, revision snapshots, scheduled publishing worker, CSRF protection, rate limits, audit events, and media validation with reference-safe deletion.
+- Media: the homepage portrait, project covers, gallery screenshots, and the profile portrait can be uploaded or chosen from the library; image bytes are served from immutable public URLs and drafts stay private.
+
+Not implemented (kept out of every “implemented” claim):
+
+- Blog/notes, downloadable CV, and general import/export.
+- Responsive image variants and object storage.
+- Automated backup verification or monitoring, and cross-module global search.
+- A live production deployment; deployment procedures and container definitions exist, but no environment is recorded here.
+
+A feature must not be described as completed until it has been implemented and verified. The requirements in `docs/02`–`docs/14` describe intended behaviour; where the current build differs, the section that documents the implemented behaviour takes precedence.
 
 ## 16. Related Documentation
 

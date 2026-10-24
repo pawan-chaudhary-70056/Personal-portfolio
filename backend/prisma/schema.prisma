@@ -40,13 +40,38 @@ model Admin {
   name         String   @db.VarChar(120)
   passwordHash String   @db.Text
   role         AdminRole @default(EDITOR)
-  isActive     Boolean  @default(true)
+  isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  /// Enables a TOTP second factor at sign-in.
+  mfaEnabled   Boolean   @default(false)
+  mfaEnabledAt DateTime?
+  /// AES-256-GCM encrypted TOTP secret. Never logged or exposed.
+  mfaSecret    String?   @db.Text
+  /// Generated during enrollment and encrypted the same way; promoted on enable.
+  mfaPendingSecret String? @db.Text
+  /// Last accepted TOTP time step, so an observed code cannot be replayed.
+  mfaLastUsedStep Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   auditEvents AuditEvent[]
   contentRevisions ContentRevision[]
+  recoveryCodes MfaRecoveryCode[]
+}
+
+/// One-time sign-in codes for an administrator with MFA enabled. Only Argon2id
+/// hashes are stored; a used code is marked instead of being deleted so the
+/// remaining count stays meaningful.
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  adminId   String
+  codeHash  String    @db.Text
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, usedAt])
 }
 
 /// The single public professional profile. The primary key is fixed to
@@ -63,8 +88,15 @@ model Profile {
   githubUrl   String?  @db.VarChar(2048)
   portraitUrl String?  @db.VarChar(2048)
   portraitAlt String?  @db.VarChar(200)
+  /// Uploaded portrait from the media library. Mutually exclusive with
+  /// `portraitUrl`; this reference takes precedence when both are set.
+  portraitMediaId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  portraitMedia MediaAsset? @relation("ProfilePortrait", fields: [portraitMediaId], references: [id], onDelete: Restrict)
+
+  @@index([portraitMediaId])
 }
 
 /// Managed project category. The admin UI creates, renames, reorders, and
@@ -96,6 +128,9 @@ model Project {
   repositoryUrl String?       @db.VarChar(2048)
   imageUrl      String?       @db.VarChar(2048)
   imageAlt      String?       @db.VarChar(200)
+  /// Uploaded cover from the media library. Mutually exclusive with `imageUrl`;
+  /// the administrator picks one source per cover.
+  coverMediaId  String?
 
   status      ProjectStatus @default(DRAFT)
   featured    Boolean       @default(false)
@@ -112,28 +147,35 @@ model Project {
 
   category    ProjectCategory     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   screenshots ProjectScreenshot[]
+  coverMedia  MediaAsset?         @relation("ProjectCover", fields: [coverMediaId], references: [id], onDelete: Restrict)
 
   @@index([status, featured, sortOrder])
+  @@index([coverMediaId])
   @@index([updatedAt])
   @@index([categoryId])
   @@index([deletedAt])
   @@index([publishAt])
 }
 
-/// A gallery image for the public project detail page. Images are hosted URLs;
-/// the media library does not manage uploads yet (docs/14-dynamic-content).
+/// A gallery image for the public project detail page. Each row uses exactly
+/// one source: an uploaded asset from the media library (`mediaId`) or a hosted
+/// URL. Uploads stay private until the project is published (docs/14 §10).
 model ProjectScreenshot {
   id        String  @id @default(cuid())
   projectId String
-  url       String  @db.VarChar(2048)
+  url       String? @db.VarChar(2048)
+  /// Uploaded gallery asset; mutually exclusive with `url`.
+  mediaId   String?
   alt       String  @db.VarChar(200)
   caption   String? @db.VarChar(200)
   sortOrder Int     @default(0)
   createdAt DateTime @default(now())
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  media   MediaAsset? @relation("ProjectScreenshotMedia", fields: [mediaId], references: [id], onDelete: Restrict)
 
   @@index([projectId, sortOrder])
+  @@index([mediaId])
 }
 
 /// Managed skill category, ordered explicitly for the public skills grouping.
@@ -286,6 +328,9 @@ model MediaAsset {
 
   draftFor     HomepageSettings[] @relation("HeroDraftPortrait")
   publishedFor HomepageSettings[] @relation("HeroPublishedPortrait")
+  projectCovers Project[]        @relation("ProjectCover")
+  projectScreenshots ProjectScreenshot[] @relation("ProjectScreenshotMedia")
+  profilePortraits Profile[]     @relation("ProfilePortrait")
 }
 
 /// Draft and published state of the homepage hero. The primary key is fixed to

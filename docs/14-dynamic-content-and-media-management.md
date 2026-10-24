@@ -927,14 +927,24 @@ The first end-to-end media workflow is the homepage hero portrait. It follows th
 
 The library required by §10–§13 is now implemented as a standalone collection rather than a portrait-only flow:
 
-- Storage is shared: `MediaAsset` rows created by the portrait upload and by the library are the same records, so a portrait appears in the library and is marked `referenced` there. Selecting an existing library asset from the portrait form is not implemented; the form still uploads the new portrait directly.
+- Storage is shared: `MediaAsset` rows created by the portrait upload and by the library are the same records, so a portrait appears in the library and is marked `referenced` there. The hero portrait form can upload a new file or reuse an existing library image through `POST /api/admin/homepage/portrait/library`.
 - Endpoints: `GET /api/admin/media` (paginated, `search` over filename and alt text), `POST /api/admin/media` (single image upload, rate limited per hour), `GET /api/admin/media/:id`, `GET /api/admin/media/:id/file` (session-protected bytes), `PATCH /api/admin/media/:id` (alt text), and `DELETE /api/admin/media/:id`.
 - Safety: the upload path is unchanged — size limit, magic-number allowlist, dimension parsing, generated UUID key, owner-only file mode, metadata written only after the file is stored, and the file removed if the database write fails. The file route requires a session and returns `private, no-store`.
 - Deletion is refused with `409` while the homepage draft or published portrait references the asset; unreferenced assets delete the row first and the file second.
 - Administration happens at `/admin/media`; see `docs/09-admin-dashboard.md` §17.
 - Tests: `backend/tests/media.test.ts` covers listing, search, pagination, upload validation, update, reference-protected deletion, and cleanup.
 
-Still not implemented from this document: attaching library assets to project or profile records, gallery uploads, generated responsive variants, and object storage. Project and profile images continue to accept validated external URLs.
+### Attaching library assets to content
+
+Project covers, gallery screenshots, the homepage hero portrait, and the profile portrait can be chosen from the library (docs/07 §31, docs/09 §17):
+
+- `Project.coverMediaId`, `ProjectScreenshot.mediaId`, `HomepageSettings.draftPortraitId`, and `Profile.portraitMediaId` are optional foreign keys to `MediaAsset`; the content URL columns remain for externally hosted images. Saving one source clears the other, and the API rejects a request that sends both for projects and the profile. The hero has no URL alternative: it is an uploaded or library asset, or the fallback.
+- A gallery row is one image: picking or uploading a library asset clears that row's URL, and typing a URL clears its asset reference. Uploading from a gallery row goes through the normal media-library upload, so the asset is available to other records too. Rows are reordered by dragging the handle or using the move buttons; the list order is the saved display order.
+- Public images are served from `/api/media/project-cover/:id`, `/api/media/project-screenshot/:id`, `/api/media/hero-portrait/:id`, and `/api/media/profile-portrait/:id`. A project cover or gallery image is only readable while its project is published, and the hero portrait only after publication, so drafts stay private. Responses are immutable and cacheable.
+- Deletion is refused while any of these references exist, and the listing's `referenced` flag reflects all of them. Replacing a gallery removes the old rows, which releases the assets for deletion.
+- The dashboard uses one reusable picker (`frontend/src/components/admin/MediaPicker.tsx`) for the cover, each gallery row, and the profile portrait; selecting an image also copies its library description into an empty alt-text field.
+
+Still not implemented from this document: generated responsive variants and object storage.
 
 ## 26. Final Principle
 

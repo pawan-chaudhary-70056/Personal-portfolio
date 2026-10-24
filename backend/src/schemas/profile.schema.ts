@@ -44,6 +44,8 @@ const profileFields = {
   linkedinUrl: optionalHttpUrlSchema,
   githubUrl: optionalHttpUrlSchema,
   portraitUrl: optionalHttpUrlSchema,
+  /** Uploaded portrait from the media library; an alternative to `portraitUrl`. */
+  portraitMediaId: z.string().trim().min(1).max(64).nullable(),
   portraitAlt: optionalText(200),
 } as const
 
@@ -55,7 +57,15 @@ const baseProfileSchema = z.object(profileFields)
  * one field at a time.
  */
 export const profileValuesSchema = baseProfileSchema.strict().superRefine((value, context) => {
-  if (value.portraitUrl && !value.portraitAlt) {
+  if (value.portraitUrl && value.portraitMediaId) {
+    context.addIssue({
+      code: 'custom',
+      path: ['portraitUrl'],
+      message: 'Choose either an uploaded portrait or an external URL.',
+    })
+  }
+
+  if ((value.portraitUrl || value.portraitMediaId) && !value.portraitAlt) {
     context.addIssue({
       code: 'custom',
       path: ['portraitAlt'],
@@ -69,6 +79,10 @@ export const updateProfileSchema = baseProfileSchema
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
     message: 'Provide at least one field to update.',
+  })
+  .refine((value) => !(value.portraitUrl && value.portraitMediaId), {
+    path: ['portraitUrl'],
+    message: 'Choose either an uploaded portrait or an external URL.',
   })
 
 export type ProfileValues = z.infer<typeof profileValuesSchema>

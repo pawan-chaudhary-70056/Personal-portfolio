@@ -6,7 +6,14 @@ import { FormField } from '@/components/forms/FormField'
 import { HeroPortrait } from '@/components/portfolio/HeroPortrait'
 import { checkboxClassName, inputClassName } from '@/components/ui/fieldStyles'
 
-export type HeroBusyAction = 'upload' | 'save' | 'publish' | 'remove' | 'sections' | null
+export type HeroBusyAction =
+  | 'upload'
+  | 'select'
+  | 'save'
+  | 'publish'
+  | 'remove'
+  | 'sections'
+  | null
 
 interface HeroPortraitFormProps {
   homepage: AdminHomepage
@@ -17,6 +24,7 @@ interface HeroPortraitFormProps {
   selectedFile: File | null
   previewUrl: string | null
   onSelectFile: (file: File | null) => void
+  onChooseFromLibrary: () => void
   onUpload: () => void
   onSave: (payload: HeroDraftPayload) => void
   onPublish: () => void
@@ -47,6 +55,7 @@ export function HeroPortraitForm({
   selectedFile,
   previewUrl,
   onSelectFile,
+  onChooseFromLibrary,
   onUpload,
   onSave,
   onPublish,
@@ -118,8 +127,9 @@ export function HeroPortraitForm({
                 Choose an image
               </label>
               <p className="mt-1 text-caption text-muted-light">
-                JPEG, PNG, or WebP up to {formatMegabytes(limits.maxBytes)}. The image is
-                validated and stored on the server; SVG files are rejected.
+                Upload a JPEG, PNG, or WebP up to {formatMegabytes(limits.maxBytes)}, or reuse
+                an image already in the media library. The image is validated on the server;
+                SVG files are rejected.
               </p>
               <input
                 id="hero-portrait-file"
@@ -137,6 +147,15 @@ export function HeroPortraitForm({
                   className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60 disabled:opacity-50"
                 >
                   {busy === 'upload' ? 'Uploading…' : 'Upload portrait'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onChooseFromLibrary}
+                  disabled={busy !== null}
+                  className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60 disabled:opacity-50"
+                >
+                  {busy === 'select' ? 'Selecting…' : 'Choose from library'}
                 </button>
 
                 {selectedFile ? (
@@ -173,7 +192,8 @@ export function HeroPortraitForm({
                 </p>
               ) : (
                 <p className="mt-3 text-caption text-muted-light">
-                  No draft portrait. The homepage shows the editorial monogram fallback.
+                  No draft portrait. Upload one, choose a library image, or use the editorial
+                  monogram fallback.
                 </p>
               )}
             </div>

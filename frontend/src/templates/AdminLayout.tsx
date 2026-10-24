@@ -48,6 +48,7 @@ const navGroups: { label: string; links: NavLinkConfig[] }[] = [
   {
     label: 'Security',
     links: [
+      { to: '/admin/security', label: 'My security', end: false },
       { to: '/admin/audit-logs', label: 'Activity log', end: false, ownerOnly: true },
       { to: '/admin/sessions', label: 'Sessions', end: false, ownerOnly: true },
       { to: '/admin/administrators', label: 'Administrators', end: false, ownerOnly: true },

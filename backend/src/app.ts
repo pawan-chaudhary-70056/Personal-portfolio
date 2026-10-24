@@ -17,11 +17,14 @@ import { createContactRouter } from './routes/public/contact.routes.js'
 import { createPublicContentRouter } from './routes/public/content.routes.js'
 import { createPublicHeroRouter } from './routes/public/hero.routes.js'
 import { createPublicHomepageRouter } from './routes/public/homepage.routes.js'
+import { createPublicMediaRouter } from './routes/public/media.routes.js'
 import { createPublicProjectsRouter } from './routes/public/projects.routes.js'
 
 export interface CreateAppOptions {
   /** Test-only override for the login rate limit. */
   loginRateLimitMax?: number
+  /** Test-only override for the second-factor rate limit. */
+  mfaRateLimitMax?: number
   /** Test-only override for the contact submission rate limit. */
   contactRateLimitMax?: number
 }
@@ -80,7 +83,10 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   app.use(
     '/api/auth',
-    createAuthRouter({ loginRateLimitMax: options.loginRateLimitMax ?? env.LOGIN_RATE_LIMIT_MAX }),
+    createAuthRouter({
+      loginRateLimitMax: options.loginRateLimitMax ?? env.LOGIN_RATE_LIMIT_MAX,
+      mfaRateLimitMax: options.mfaRateLimitMax,
+    }),
   )
   app.use('/api/admin', createAdminRouter())
   app.use('/api/projects', createPublicProjectsRouter())
@@ -89,6 +95,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api/analytics', createAnalyticsRouter())
   app.use('/api', createPublicContentRouter())
   app.use('/api', createPublicHeroRouter())
+  app.use('/api', createPublicMediaRouter())
 
   // Single-origin deployment: serve the built SPA when it is available.
   if (env.isProduction) {

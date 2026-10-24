@@ -121,7 +121,7 @@ Potential backend configuration includes:
 | `NODE_ENV` | Runtime environment |
 | `PORT` | Backend listening port |
 | `DATABASE_URL` | PostgreSQL connection |
-| `SESSION_SECRET` | Session-related secret, if required by the chosen session implementation |
+| `SESSION_SECRET` | Session secret, at least 32 characters. Also derives the encryption key for stored MFA secrets; rotating it invalidates every enrolment, so administrators must enrol again |
 | `FRONTEND_ORIGIN` | Permitted frontend origin |
 | `CORS_ORIGIN` | CORS allowlist, if configured separately |
 | `REDIS_URL` | Redis connection, if Redis is used |

@@ -896,8 +896,9 @@ The application is release-ready only when all mandatory quality gates pass and 
 - Hiding the portrait or removing it and publishing restores the fallback.
 - Deleting a referenced asset returns 409; an unreferenced asset is removed from the database and the media root.
 - Replacing a portrait removes the superseded file only after it is unreferenced.
+- Selecting an existing library image sets the draft portrait, copies its description into empty alt text, stays private until published, and is protected from deletion with 409. An unknown id returns 400 `invalid_media`, switching between uploads and library images removes only the superseded unreferenced asset, and a still-published asset is never removed.
 
-The frontend is verified with `npm run verify:homepage` (portrait rendering, fallback, reduced motion, no layout overflow) and `npm run verify:admin` (upload, draft preview, save, publish, remove). Both scripts also run axe WCAG A/AA audits on the affected pages.
+The frontend is verified with `npm run verify:homepage` (portrait rendering, fallback, reduced motion, no layout overflow) and `npm run verify:admin` (upload, library selection, draft preview, save, publish, remove). The admin verifier uploads a library image, selects it through the homepage picker, confirms the draft reference and preview, and restores the original draft state and removes the test asset afterwards. Both scripts also run axe WCAG A/AA audits on the affected pages.
 
 ## 29. Bulk, Trash, and Revision Coverage (Implemented)
 
@@ -920,7 +921,7 @@ End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the trash page,
 - Deactivating an account revokes its sessions immediately, blocks sign-in, and reactivation restores access.
 - Password resets revoke existing sessions, accept the new password, reject short passwords, return 404 for unknown accounts, and write `ADMIN_PASSWORD_RESET`.
 
-`backend/tests/oversight.test.ts` adds a role test: an editor can sign in, read the overview, and create and read projects, but every owner-only endpoint (health, analytics, activity log, settings, sessions, administrators) returns 403, and editors cannot change administrator roles.
+`backend/tests/oversight.test.ts` adds a role test: an editor can sign in, read the overview, and create and read projects, but every owner-only endpoint (health, analytics, activity log, sign-in monitoring, settings, sessions, administrators) returns 403, and editors cannot change administrator roles.
 
 `backend/tests/scheduling.test.ts` covers scheduled publishing:
 
@@ -938,7 +939,59 @@ Public images (project covers, gallery screenshots, and profile portraits) point
 
 `frontend/scripts/capture-screens.mjs` captures the public and admin screenshots in `.qa/screenshots/` and writes the homepage tab order to `.qa/keyboard-focus.txt`, so visual and focus regressions can be reviewed from the repository rather than only from a live browser.
 
-## 32. Related Documentation
+## 32. Media Library Attachments (Implemented)
+
+`backend/tests/media.test.ts` covers the new project-cover and profile-portrait references against a real database:
+
+- A draft project's cover returns 404 publicly; publishing the project makes the bytes readable with the immutable cache header, and the public project detail and listing return the `/api/media/project-cover/<id>` URL without leaking `coverMediaId`.
+- A cover in use makes `DELETE /api/admin/media/:id` return 409 and sets `referenced: true` in the listing; saving an external `imageUrl` detaches the asset, after which deletion succeeds and the old URL returns 404.
+- Sending both `coverMediaId` and `imageUrl` returns `400 validation_error`; an unknown id returns `400 invalid_media` with the field in `details`.
+- The profile portrait is served from `/api/media/profile-portrait/<id>`, is protected from deletion, and is replaced when an external `portraitUrl` is saved. A profile with both sources is rejected.
+
+Gallery screenshots use the same library (covered by `backend/tests/media.test.ts` and `backend/tests/screenshots.test.ts`):
+
+- A draft project's gallery bytes return `404` publicly, and publishing the project serves them at `/api/media/project-screenshot/<id>` with the immutable cache header.
+- The public detail response returns the resolved URL in `screenshots[].url` and never exposes `mediaId`; the admin read keeps the reference so the edit form can render the image.
+- An asset used by a gallery row cannot be deleted (`409`, `referenced: true`); replacing the gallery with external URLs releases it for deletion.
+- Sending both sources for one row, neither source, or an unknown asset id returns `400` with the field path `screenshots.<index>.mediaId`.
+- Revision snapshots keep the gallery's asset references, so restoring the created revision brings back a library image on the public page.
+
+The admin verifier covers the picker end to end: it picks a library image as the project cover and as a gallery row, checks the saved references and that the draft assets stay private, confirms deletion is refused while referenced, purges the fixture project, and then deletes the asset. It also drags one gallery row above the other and confirms the saved order, and selects a library image as the homepage portrait before restoring the previous draft state.
+
+Frontend coverage:
+
+- `MediaPicker.test.tsx` renders the picker against a mocked media API, selects an asset, reports the selection through `onSelect`, and shows the empty state. The jsdom dialog methods are stubbed because jsdom does not implement them.
+- `projectPayload.test.ts` and `profilePayload.test.ts` assert that a picked asset is sent as an id, the URL field is cleared, and a typed URL wins over a stale pick. The gallery case also asserts that a picked screenshot is sent as `mediaId` with a null URL and that rows without an image are dropped.
+
+## 33. Administrator MFA Coverage (Implemented)
+
+`backend/tests/mfa.test.ts` covers TOTP enrolment and sign-in against the real database and session stack:
+
+- Enrolment requires an authenticated session and CSRF token; the setup response carries the secret and `otpauth` URI, a wrong confirmation code returns `400`, and a successful confirmation returns ten recovery codes and marks MFA enabled.
+- A password login on an MFA account returns `{ mfaRequired: true }` and creates no authenticated session; `/api/admin/overview` stays `401` until a code is accepted.
+- A current TOTP code completes sign-in, the same step is rejected on a second attempt (replay), and a code outside the drift window fails.
+- Five incorrect codes destroy the challenge, and an expired challenge requires a fresh password login.
+- A recovery code signs in once and the second use fails; the remaining count drops from 10 to 9.
+- Disabling requires the password and a valid code, removes unused recovery codes, and restores password-only sign-in; regenerating codes invalidates the previous set.
+- Enabling, disabling, and regenerating codes write the corresponding audit events and revoke the account's other sessions while keeping the current one.
+
+Two-factor authentication has no Playwright verifier step yet; the flow was exercised manually in Chromium during development (enrol, challenge, code and recovery sign-in, replay rejection, disable).
+
+## 34. Sign-in Monitoring Coverage (Implemented)
+
+`backend/tests/oversight.test.ts` covers the failed-login monitoring endpoint against the real database and session stack:
+
+- `GET /api/admin/login-monitoring` requires authentication, has no write operations (POST returns 404), and appears in the owner-only endpoint list that returns 403 for editors.
+- Two rejected sign-ins (an unknown account and a wrong password) are counted in the totals alongside the successful sign-in, grouped under one source address, and listed newest-first in `recent` with the targeted account, machine reason, and user agent.
+- The response is a fixed field set: audit metadata, password hashes, and session state never appear in the serialized report.
+- An event inserted eight days earlier is excluded by `days=7` and included by `days=30`, with its source address in the breakdown.
+- The window parameter is validated (`days=0`, `days=31`, `days=abc`, and unknown fields return 400).
+
+`frontend/src/components/admin/LoginMonitoringPanel.test.tsx` covers the panel with a mocked API: totals render from the definition list, the source breakdown and recent failures (including an MFA failure without metadata falling back to safe placeholders) are shown, changing the window refetches with the new value, and a failed load shows an error state whose Retry recovers.
+
+End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the activity log, waits for the `login-monitoring` response, confirms the totals render and count the failed sign-in recorded earlier in the same run, checks the failed sign-in is named with its account and reason, and confirms failures are grouped by source address.
+
+## 35. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

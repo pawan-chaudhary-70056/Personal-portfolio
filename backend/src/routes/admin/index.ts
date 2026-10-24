@@ -3,8 +3,9 @@ import { parseInput } from '../../lib/validate.js'
 import { requireAdmin } from '../../middleware/require-admin.js'
 import { requireOwner } from '../../middleware/require-owner.js'
 import { analyticsQuerySchema } from '../../schemas/analytics.schema.js'
-import { listAuditLogsQuerySchema } from '../../schemas/audit.schema.js'
+import { listAuditLogsQuerySchema, loginMonitoringQuerySchema } from '../../schemas/audit.schema.js'
 import { listAuditEvents } from '../../services/audit.service.js'
+import { getLoginMonitoring } from '../../services/login-monitoring.service.js'
 import { getAnalytics } from '../../services/analytics.service.js'
 import { getSystemHealth } from '../../services/health.service.js'
 import { getOverview } from '../../services/overview.service.js'
@@ -16,6 +17,7 @@ import { createAdminEducationRouter } from './education.routes.js'
 import { createAdminExperienceRouter } from './experience.routes.js'
 import { createAdminHomepageRouter } from './homepage.routes.js'
 import { createAdminMediaRouter } from './media.routes.js'
+import { createAdminMfaRouter } from './mfa.routes.js'
 import { createAdminMessagesRouter } from './messages.routes.js'
 import { createAdminProfileRouter } from './profile.routes.js'
 import { createAdminProjectsRouter } from './projects.routes.js'
@@ -51,9 +53,17 @@ export function createAdminRouter(): Router {
     res.json(await listAuditEvents(query))
   })
 
+  // Failed-login monitoring aggregates the same append-only trail: failed
+  // password attempts, failed second-factor codes, and successes per window.
+  router.get('/login-monitoring', requireOwner, async (req, res) => {
+    const query = parseInput(loginMonitoringQuerySchema, req.query)
+    res.json(await getLoginMonitoring(query))
+  })
+
   router.use(createContentAdminRouter())
   router.use('/administrators', requireOwner, createAdministratorsRouter())
 
+  router.use('/mfa', createAdminMfaRouter())
   router.use('/profile', createAdminProfileRouter())
   router.use('/homepage', createAdminHomepageRouter())
   router.use('/settings', requireOwner, createAdminSettingsRouter())

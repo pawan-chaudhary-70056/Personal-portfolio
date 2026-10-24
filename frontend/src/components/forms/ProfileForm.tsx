@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type { AdminProfile, ProfilePayload } from '@/@types/admin'
+import { MediaPicker } from '@/components/admin/MediaPicker'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { FormField } from '@/components/forms/FormField'
 import { inputClassName, textareaClassName } from '@/components/ui/fieldStyles'
@@ -41,6 +42,7 @@ export function ProfileForm({
   onSubmit,
 }: ProfileFormProps) {
   const [values, setValues] = useState<ProfileFormValues>(() => toProfileFormValues(profile))
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   function update<K extends keyof ProfileFormValues>(key: K, value: ProfileFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }))
@@ -54,7 +56,11 @@ export function ProfileForm({
   const invalid = (field: string) => (fieldErrors[field] ? true : undefined)
   const describedBy = (field: string) => (fieldErrors[field] ? `${field}-error` : undefined)
 
-  const portrait = isHttpUrl(values.portraitUrl) ? values.portraitUrl.trim() : null
+  const portrait = values.portraitMediaId
+    ? `/api/admin/media/${values.portraitMediaId}/file`
+    : isHttpUrl(values.portraitUrl)
+      ? values.portraitUrl.trim()
+      : null
   const links = [
     { label: 'Website', url: values.websiteUrl },
     { label: 'LinkedIn', url: values.linkedinUrl },
@@ -223,14 +229,18 @@ export function ProfileForm({
               <FormField
                 id="portraitUrl"
                 label="Portrait URL"
-                hint="Optional. Uploads are not enabled yet; use a hosted image URL."
+                hint="Optional. Use an uploaded image below, or link a hosted one."
                 error={fieldErrors.portraitUrl}
               >
                 <input
                   id="portraitUrl"
                   type="url"
                   value={values.portraitUrl}
-                  onChange={(event) => update('portraitUrl', event.target.value)}
+                  onChange={(event) => {
+                    update('portraitUrl', event.target.value)
+                    // A typed URL replaces a previously picked portrait.
+                    if (event.target.value.trim()) update('portraitMediaId', '')
+                  }}
                   aria-invalid={invalid('portraitUrl')}
                   aria-describedby={describedBy('portraitUrl')}
                   className={inputClassName}
@@ -240,7 +250,7 @@ export function ProfileForm({
               <FormField
                 id="portraitAlt"
                 label="Portrait description"
-                hint="Required when a portrait URL is set. Describe the image for screen readers."
+                hint="Required when a portrait is set. Describe the image for screen readers."
                 error={fieldErrors.portraitAlt}
               >
                 <input
@@ -253,6 +263,61 @@ export function ProfileForm({
                 />
               </FormField>
             </div>
+
+            <div className="border border-charcoal/15 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
+                    Uploaded portrait
+                  </p>
+                  <p className="mt-1 text-body-sm text-charcoal/70">
+                    {values.portraitMediaId
+                      ? 'This profile uses an image from the media library.'
+                      : 'No library image selected. Choose one instead of hosting a URL.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+                  >
+                    {values.portraitMediaId ? 'Change image' : 'Choose from library'}
+                  </button>
+                  {values.portraitMediaId ? (
+                    <button
+                      type="button"
+                      onClick={() => update('portraitMediaId', '')}
+                      className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {values.portraitMediaId ? (
+                <img
+                  src={`/api/admin/media/${values.portraitMediaId}/file`}
+                  alt=""
+                  className="mt-4 size-32 border border-charcoal/10 bg-charcoal/5 object-cover"
+                />
+              ) : null}
+            </div>
+
+            <MediaPicker
+              open={pickerOpen}
+              selectedId={values.portraitMediaId || null}
+              onClose={() => setPickerOpen(false)}
+              onSelect={(asset) => {
+                update('portraitMediaId', asset.id)
+                update('portraitUrl', '')
+                if (!values.portraitAlt.trim() && asset.altText) {
+                  update('portraitAlt', asset.altText)
+                }
+              }}
+            />
           </fieldset>
 
           <div className="flex flex-wrap items-center gap-4 border-t border-charcoal/15 pt-8">

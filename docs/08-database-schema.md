@@ -177,6 +177,11 @@ Proposed fields:
 | `email` | Unique login identifier |
 | `passwordHash` | Argon2id password hash |
 | `isActive` | Whether the account is enabled |
+| `mfaEnabled` | Whether sign-in requires a second factor |
+| `mfaEnabledAt` | Timestamp of the current enrolment |
+| `mfaSecret` | AES-256-GCM encrypted TOTP secret, never returned |
+| `mfaPendingSecret` | Encrypted secret generated during setup, promoted on enable |
+| `mfaLastUsedStep` | Last accepted TOTP time step, used to reject replays |
 | `createdAt` | Creation timestamp |
 | `updatedAt` | Last update timestamp |
 | `lastLoginAt` | Optional last successful login timestamp |
@@ -190,6 +195,29 @@ Requirements:
 - Use an appropriate permission model if multiple administrators are introduced.
 
 For a single-administrator portfolio, a simple account model may be sufficient. Do not build complex role management unless required.
+
+#### Second-factor credentials
+
+The implemented model keeps the second factor on the account and stores recovery codes in a separate table, so unused codes can be counted, marked used, and deleted together with the enrolment.
+
+`MfaRecoveryCode`:
+
+| Field | Purpose |
+|---|---|
+| `id` | Primary key |
+| `adminId` | Owning account; cascades on account deletion |
+| `codeHash` | Argon2id hash of the normalized code |
+| `usedAt` | Set when redeemed; rows are kept so the remaining count stays meaningful |
+| `createdAt` | Generation timestamp |
+
+Index: `@@index([adminId, usedAt])`.
+
+Requirements:
+
+- Encrypt the TOTP secret at rest; the key is derived from `SESSION_SECRET` through HKDF, so no plaintext secret is stored or logged.
+- Store recovery codes only as hashes and never return them after the enrolment response.
+- Keep no more than one active enrolment per account; enabling replaces any pending secret and regenerating codes deletes the previous rows.
+- Deleting or disabling an account removes its recovery codes.
 
 ### 5.2 Administrator Sessions
 
@@ -1006,7 +1034,9 @@ The hero portrait feature added two models. Both follow the rules in §5.13 and 
 | `width`, `height` | `Int` | Parsed from the image header; used to reserve layout space |
 | `createdAt`, `updatedAt` | `DateTime` | Standard timestamps |
 
-Binary data is never stored in PostgreSQL. Deletion policy: restricted while the asset is referenced by homepage settings; the API checks both draft and published references and returns 409 otherwise.
+Binary data is never stored in PostgreSQL. Deletion policy: restricted while the asset is referenced by homepage settings, a project cover, or the profile portrait. Every reference uses `onDelete: Restrict`, and the API returns 409 while any reference remains.
+
+The model has four reverse relations: `draftFor` and `publishedFor` (homepage), `projectCovers`, and `profilePortraits`.
 
 ### 20.2 `HomepageSettings`
 
@@ -1029,7 +1059,20 @@ Singleton row with fixed id `primary`, mirroring the `Profile` pattern.
 - Clearing the draft portrait or disabling visibility does not change the published state until the administrator publishes again.
 - `sectionOrder` is a complete permutation of the section catalog (`about`, `work`, `skills`, `experience`, `credentials`, `contact`); hidden sections keep their position. `featuredProjectIds` accepts at most 12 published project ids, in display order.
 
-### 20.3 `SiteSettings`
+### 20.3 Project and Profile Media References
+
+| Field | Model | Notes |
+|---|---|---|
+| `coverMediaId` | `Project` | `String?` foreign key to `MediaAsset`, indexed, `onDelete: Restrict` |
+| `mediaId` | `ProjectScreenshot` | `String?` foreign key to `MediaAsset`, indexed, `onDelete: Restrict` |
+| `portraitMediaId` | `Profile` | `String?` foreign key to `MediaAsset`, indexed, `onDelete: Restrict` |
+
+- Each is an alternative to the record's existing URL column (`Project.imageUrl`, `ProjectScreenshot.url`, `Profile.portraitUrl`). Application rules keep at most one set: saving an asset reference clears the URL and vice versa.
+- `ProjectScreenshot.url` is nullable so a gallery row can carry a library reference instead. Cascading project deletion still removes the rows; the restricting foreign key keeps a referenced asset from being deleted first.
+- Migrations: `20261024070144_media_references` adds the cover and portrait columns; `20261024083215_project_gallery_media` makes `ProjectScreenshot.url` nullable and adds `mediaId` with its index and restricting foreign key. Existing rows keep their URL values unchanged.
+- Project revision snapshots record `coverMediaId` alongside `imageUrl`, so a restore reproduces the same cover source.
+
+### 20.4 `SiteSettings`
 
 Singleton row with fixed id `primary`. Only the allowlisted public presentation fields exist as columns; there is no JSON catch-all for operational configuration.
 

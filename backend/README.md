@@ -75,6 +75,9 @@ Uploaded portraits are written to `MEDIA_ROOT` (default `backend/storage/media`,
 | `GET` | `/api/health` | Public | Liveness check |
 | `GET` | `/api/hero` | Public | Published hero portrait and effect settings (never draft values) |
 | `GET` | `/api/media/hero-portrait/:id` | Public | Streams the published portrait; other ids return 404 |
+| `GET` | `/api/media/project-cover/:id` | Public | Streams the cover of a published project |
+| `GET` | `/api/media/project-screenshot/:id` | Public | Streams a gallery image of a published project |
+| `GET` | `/api/media/profile-portrait/:id` | Public | Streams the profile portrait |
 | `GET` | `/api/profile` | Public | Approved public profile fields, `null` until initialised |
 | `GET` | `/api/projects?category=` | Public | Published projects, public fields only, optionally filtered by category name |
 | `GET` | `/api/projects/:slug` | Public | One published project; drafts and unknown slugs return 404 |
@@ -86,15 +89,22 @@ Uploaded portraits are written to `MEDIA_ROOT` (default `backend/storage/media`,
 | `GET` | `/api/certifications` | Public | Published certifications |
 | `POST` | `/api/contact` | Public (rate limited) | Submit a contact message; requires a CSRF token |
 | `GET` | `/api/auth/csrf` | Public | Issue a CSRF token cookie |
-| `POST` | `/api/auth/login` | Public (rate limited) | Sign in |
+| `POST` | `/api/auth/login` | Public (rate limited) | Sign in; returns `{ mfaRequired: true }` instead of a session when the account has MFA enabled |
+| `POST` | `/api/auth/mfa` | Pending MFA session (rate limited) | Complete a challenged sign-in with a TOTP or recovery code |
 | `POST` | `/api/auth/logout` | Session | Sign out and destroy the session |
 | `GET` | `/api/auth/session` | Session | Current admin or 401 |
 | `GET` | `/api/admin/overview` | Admin | Project and content counts, recent audit events |
+| `GET` | `/api/admin/mfa` | Admin | The caller's second-factor status and remaining recovery codes |
+| `POST` | `/api/admin/mfa/setup` | Admin | Start enrolment and return the secret and `otpauth` URI |
+| `POST` | `/api/admin/mfa/enable` | Admin | Confirm a code and return ten recovery codes once |
+| `POST` | `/api/admin/mfa/disable` | Admin | Disable MFA; requires the password and a valid code |
+| `POST` | `/api/admin/mfa/recovery-codes` | Admin | Replace all recovery codes; requires the password and a current code |
 | `GET` | `/api/admin/profile` | Admin | Editable profile, or `null` before it exists |
 | `PATCH` | `/api/admin/profile` | Admin | Create or partially update the singleton profile |
 | `GET` | `/api/admin/homepage` | Admin | Draft and published hero state, change flag, upload limits |
 | `PATCH` | `/api/admin/homepage` | Admin | Update draft alt text, visibility, and effect settings |
 | `POST` | `/api/admin/homepage/portrait` | Admin | Upload/replace the draft portrait (multipart field `file`, rate limited) |
+| `POST` | `/api/admin/homepage/portrait/library` | Admin | Reuse an existing media-library image as the draft portrait |
 | `DELETE` | `/api/admin/homepage/portrait` | Admin | Clear the draft portrait, leaving the published state |
 | `POST` | `/api/admin/homepage/publish` | Admin | Publish the draft state |
 | `GET` | `/api/admin/media?page=&pageSize=&search=` | Admin | Paginated media library |
@@ -154,7 +164,7 @@ Uploaded portraits are written to `MEDIA_ROOT` (default `backend/storage/media`,
 | `PATCH` | `/api/admin/messages/:id` | Admin | Set status to `NEW`, `READ`, or `ARCHIVED` |
 | `DELETE` | `/api/admin/messages/:id` | Admin | Permanently delete a message |
 
-Status changes go through `PATCH` with `{"status":"PUBLISHED"|"DRAFT"|"ARCHIVED"}`; the service sets `publishedAt`/`archivedAt` consistently. Project payloads accept a `screenshots` array of `{url, alt, caption}`; the public read returns it ordered and omits the administrative columns.
+Status changes go through `PATCH` with `{"status":"PUBLISHED"|"DRAFT"|"ARCHIVED"}`; the service sets `publishedAt`/`archivedAt` consistently. Project payloads accept a `screenshots` array of `{url, mediaId, alt, caption}`; each row uses exactly one image source, and the public read returns the ordered gallery with `url` resolved (a library asset becomes `/api/media/project-screenshot/<id>`) and the administrative `mediaId` omitted.
 
 Project and skill payloads keep sending `category` as a name. On create, an unknown name creates the category (so existing clients keep working); on update the name must already exist, and the field error asks the administrator to pick a managed category. Renaming or deleting categories is done through the category endpoints above, and deletion is refused with a 409 while any record still references the category.
 
@@ -163,9 +173,12 @@ Project and skill payloads keep sending `category` as a name. On create, an unkn
 - Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` in production, scoped to `/`.
 - CSRF is verified before authorization for state-changing requests, including sign-in. An unauthenticated write without a token returns `403 csrf_failed`; with a valid token and no session it returns `401 unauthorized`.
 - Unknown accounts and wrong passwords return the same message, and unknown accounts still perform an Argon2id verification to avoid a timing signal.
+- The second factor is optional per account. A correct password on an MFA account only creates a pending challenge (10-minute TTL, 5 attempts, its own rate limiter); the session identifier is regenerated again once the code is accepted, so no session is authenticated before the second factor.
+- TOTP secrets are stored AES-256-GCM encrypted with a key derived from `SESSION_SECRET` via HKDF; each accepted time step is recorded so a code cannot be replayed. Recovery codes are Argon2id hashes, marked used on redemption, and deleted when MFA is disabled. Enabling, disabling, and regenerating codes revoke the account's other sessions and write `MFA_ENABLED`, `MFA_DISABLED`, or `MFA_RECOVERY_CODES_REGENERATED` audit events.
 - Audit metadata records field names and titles, never passwords or session identifiers.
 - The public profile endpoint returns an explicit allowlist of professional fields. Administrator credentials and account fields live on a separate model and are never included.
 - Session-management responses expose only a 16-character SHA-256 fingerprint of a session id, plus timestamps and the stored user-agent string. The raw session id, cookie value, and cookie contents are never returned.
+- Gallery images reused from the library are served only while their project is published; deleting an asset that a cover, gallery row, homepage portrait, or profile portrait still uses returns `409`.
 - A session can only be listed or revoked by the administrator who owns it; revoking the current session through the API is rejected with `409` (use sign-out).
 - In production the API also serves the built SPA from `../frontend/dist`, keeping the app on one origin (no CORS, simpler cookie/CSRF rules).
 
@@ -175,12 +188,11 @@ Project and skill payloads keep sending `category` as a name. On create, an unkn
 npm test
 ```
 
-Vitest + Supertest run against the isolated `portfolio_test` database; migrations are applied by the test global setup and tables are truncated between tests. Coverage includes unauthorized access, CSRF rejection, origin rejection, credential enumeration, session lifecycle, cookie flags, rate limiting, validation errors, slug conflicts, publish/archive visibility rules, pagination, deletion, skill uniqueness, experience date rules, audit records, audit-log filtering and pagination, session isolation, session revocation, profile singleton/partial-update/merged validation rules, portrait alt-text enforcement, the public profile field allowlist, contact submission validation, honeypot filtering, rate limiting, inbox pagination/filtering, status changes, deletion, project screenshot galleries (create, replace-on-update, validation, cascade delete, public exposure), bulk actions, trash and revisions (including cross-type bulk restore and purge), scheduled publishing (validation, conflicts, due-record promotion), site settings, homepage sections, media uploads, administrator management and role enforcement — 142 tests.
+Vitest + Supertest run against the isolated `portfolio_test` database; migrations are applied by the test global setup and tables are truncated between tests. Coverage includes unauthorized access, CSRF rejection, origin rejection, credential enumeration, session lifecycle, cookie flags, rate limiting, validation errors, slug conflicts, publish/archive visibility rules, pagination, deletion, skill uniqueness, experience date rules, audit records, audit-log filtering and pagination, session isolation, session revocation, profile singleton/partial-update/merged validation rules, portrait alt-text enforcement, the public profile field allowlist, contact submission validation, honeypot filtering, rate limiting, inbox pagination/filtering, status changes, deletion, project screenshot galleries (create, replace-on-update, validation, cascade delete, public exposure), bulk actions, trash and revisions (including cross-type bulk restore and purge), scheduled publishing (validation, conflicts, due-record promotion), site settings, homepage sections, media uploads, administrator management and role enforcement, MFA enrolment, challenge, replay rejection, recovery codes, disable flows, and uploaded gallery screenshots (publication, reference-protected deletion, source validation, revision restore) — 159 tests.
 
 ## Known limitations
 
 - The login rate limiter uses in-memory storage, which assumes a single API instance. Running multiple instances requires a shared store (e.g. Redis).
-- Multi-factor authentication is not implemented. Do not claim MFA protection.
 - Password resets are performed by an owner from the Administrators page; `create-admin` remains the recovery path for a locked-out deployment and always provisions an Owner.
 - Uploaded images are stored on the API host's filesystem under `MEDIA_ROOT`, so multiple API instances need a shared volume.
 - Contact messages are stored in the database only; email notifications are not sent, so the API never claims a message was emailed.

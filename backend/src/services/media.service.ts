@@ -67,7 +67,15 @@ export async function listMedia({ page, pageSize, search }: ListMediaQuery) {
       take: pageSize,
       select: {
         ...ADMIN_MEDIA_SELECT,
-        _count: { select: { draftFor: true, publishedFor: true } },
+        _count: {
+          select: {
+            draftFor: true,
+            publishedFor: true,
+            projectCovers: true,
+            projectScreenshots: true,
+            profilePortraits: true,
+          },
+        },
       },
     }),
     prisma.mediaAsset.count({ where }),
@@ -76,13 +84,36 @@ export async function listMedia({ page, pageSize, search }: ListMediaQuery) {
   return {
     items: assets.map(({ _count, ...asset }) => ({
       ...mediaView(asset),
-      referenced: _count.draftFor + _count.publishedFor > 0,
+      referenced:
+        _count.draftFor +
+          _count.publishedFor +
+          _count.projectCovers +
+          _count.projectScreenshots +
+          _count.profilePortraits >
+        0,
     })),
     total,
     page,
     pageSize,
     pageCount: total === 0 ? 0 : Math.ceil(total / pageSize),
   }
+}
+
+/**
+ * Confirms a picked library asset still exists, so a stale dashboard tab cannot
+ * attach a deleted image. The failure is reported against the field that
+ * carried the id, matching the other validation errors.
+ */
+export async function requireMediaAssetId(id: string, field: string): Promise<string> {
+  const asset = await prisma.mediaAsset.findUnique({ where: { id }, select: { id: true } })
+
+  if (!asset) {
+    throw new ApiError(400, 'invalid_media', 'Choose an image from the media library.', [
+      { path: field, message: 'That image is no longer in the library.' },
+    ])
+  }
+
+  return asset.id
 }
 
 export async function getMediaAsset(id: string) {
@@ -206,18 +237,87 @@ export async function readMediaFile(
 }
 
 /**
- * Deletion is refused while the homepage still references the asset. The
- * database row goes first so a storage failure cannot leave a dangling record.
+ * Public bytes for a project cover. Only the cover of a published project is
+ * readable: a draft project's image stays private until the record is published.
+ */
+export async function readPublishedProjectCover(
+  id: string,
+): Promise<{ asset: { mimeType: string; sizeBytes: number }; buffer: Buffer } | null> {
+  const project = await prisma.project.findFirst({
+    where: { coverMediaId: id, status: 'PUBLISHED', deletedAt: null },
+    select: { id: true },
+  })
+
+  if (!project) {
+    return null
+  }
+
+  return readMediaBytes(id)
+}
+
+/**
+ * Public bytes for a gallery image. The bytes stay private until the owning
+ * project is published; a trashed or draft project returns 404.
+ */
+export async function readPublishedProjectScreenshot(
+  id: string,
+): Promise<{ asset: { mimeType: string; sizeBytes: number }; buffer: Buffer } | null> {
+  const screenshot = await prisma.projectScreenshot.findFirst({
+    where: { mediaId: id, project: { status: 'PUBLISHED', deletedAt: null } },
+    select: { id: true },
+  })
+
+  if (!screenshot) {
+    return null
+  }
+
+  return readMediaBytes(id)
+}
+
+/** Public bytes for the profile portrait. The profile publishes on save. */
+export async function readProfilePortrait(
+  id: string,
+): Promise<{ asset: { mimeType: string; sizeBytes: number }; buffer: Buffer } | null> {
+  const profile = await prisma.profile.findFirst({
+    where: { portraitMediaId: id },
+    select: { id: true },
+  })
+
+  if (!profile) {
+    return null
+  }
+
+  return readMediaBytes(id)
+}
+
+async function readMediaBytes(id: string) {
+  const asset = await getMediaAsset(id)
+  return { asset, buffer: await readImage(asset.storageKey) }
+}
+
+/**
+ * Deletion is refused while any content still references the asset: the
+ * homepage portrait, a project cover, a gallery screenshot, or the profile
+ * portrait. The database row goes first so a storage failure cannot leave a
+ * dangling record.
  */
 export async function deleteMediaAsset(id: string, ctx: RequestContext): Promise<void> {
   const asset = await getMediaAsset(id)
 
-  const references = await prisma.homepageSettings.count({
-    where: { OR: [{ draftPortraitId: id }, { publishedPortraitId: id }] },
-  })
+  const [homepageReferences, projectReferences, screenshotReferences, profileReferences] =
+    await Promise.all([
+      prisma.homepageSettings.count({
+        where: { OR: [{ draftPortraitId: id }, { publishedPortraitId: id }] },
+      }),
+      prisma.project.count({ where: { coverMediaId: id } }),
+      prisma.projectScreenshot.count({ where: { mediaId: id } }),
+      prisma.profile.count({ where: { portraitMediaId: id } }),
+    ])
 
-  if (references > 0) {
-    throw conflict('This image is still used by the homepage. Replace or remove it there first.')
+  if (homepageReferences + projectReferences + screenshotReferences + profileReferences > 0) {
+    throw conflict(
+      'This image is still used by the portfolio. Replace or remove it there first.',
+    )
   }
 
   await prisma.$transaction(async (tx) => {

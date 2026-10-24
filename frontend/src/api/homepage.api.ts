@@ -32,6 +32,15 @@ export async function uploadHeroPortrait(file: File): Promise<AdminHomepage> {
   return response.homepage
 }
 
+/** Reuses an existing library image as the draft portrait. */
+export async function selectHeroPortrait(mediaId: string): Promise<AdminHomepage> {
+  const response = await apiRequest<HomepageResponse>('/admin/homepage/portrait/library', {
+    method: 'POST',
+    body: { mediaId },
+  })
+  return response.homepage
+}
+
 export async function removeHeroPortrait(): Promise<AdminHomepage> {
   const response = await apiRequest<HomepageResponse>('/admin/homepage/portrait', {
     method: 'DELETE',

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
   AdminHomepage,
+  AdminMedia,
   HeroDraftPayload,
   HomepageLayoutPayload,
 } from '@/@types/admin'
@@ -9,12 +10,14 @@ import {
   getAdminHomepage,
   publishHomepage,
   removeHeroPortrait,
+  selectHeroPortrait,
   updateHomepageDraft,
   uploadHeroPortrait,
 } from '@/api/homepage.api'
 import { getProfile } from '@/api/profile.api'
 import { useSession } from '@/auth/useSession'
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog'
+import { MediaPicker } from '@/components/admin/MediaPicker'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { HeroPortraitForm, type HeroBusyAction } from '@/components/forms/HeroPortraitForm'
 import { HomepageSectionsForm } from '@/components/forms/HomepageSectionsForm'
@@ -40,6 +43,7 @@ export function AdminHomepagePage() {
   const [formVersion, setFormVersion] = useState(0)
   const [sectionsVersion, setSectionsVersion] = useState(0)
   const [removeOpen, setRemoveOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   useEffect(() => {
     setPageMetadata({
@@ -173,6 +177,18 @@ export function AdminHomepagePage() {
     )
   }
 
+  function handleChoosePortrait(asset: AdminMedia) {
+    // A pending local file would otherwise hide the chosen library image.
+    setSelection(null)
+    setPickerOpen(false)
+
+    void run(
+      'select',
+      () => selectHeroPortrait(asset.id),
+      'Library image selected as the draft portrait. Publish when it looks right.',
+    )
+  }
+
   function handleSave(payload: HeroDraftPayload) {
     void run(
       'save',
@@ -271,6 +287,7 @@ export function AdminHomepagePage() {
         selectedFile={selection?.file ?? null}
         previewUrl={selection?.url ?? null}
         onSelectFile={handleSelectFile}
+        onChooseFromLibrary={() => setPickerOpen(true)}
         onUpload={handleUpload}
         onSave={handleSave}
         onPublish={handlePublish}
@@ -284,6 +301,13 @@ export function AdminHomepagePage() {
         formError={null}
         fieldErrors={fieldErrors}
         onSave={handleSaveSections}
+      />
+
+      <MediaPicker
+        open={pickerOpen}
+        selectedId={homepage.draft.portrait?.id ?? null}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleChoosePortrait}
       />
 
       <ConfirmDialog

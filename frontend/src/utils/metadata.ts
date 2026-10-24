@@ -20,9 +20,9 @@ function upsertMeta(attribute: 'name' | 'property', key: string, content: string
 /**
  * Updates document metadata for the current page.
  *
- * Client-side updates keep navigation metadata correct; public pages are also
- * pre-rendered at build time so crawlers and link unfurls get real HTML
- * (docs/06-frontend-architecture.md §15).
+ * These tags are applied client-side after the app mounts. There is no
+ * pre-render or server-render step: a crawler or link unfurl that does not
+ * execute JavaScript sees the static defaults in index.html instead.
  */
 export function setPageMetadata({ title, description, url, image }: PageMetadata): void {
   document.title = title

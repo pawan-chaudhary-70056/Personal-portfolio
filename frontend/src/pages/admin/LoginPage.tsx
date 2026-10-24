@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError } from '@/api/client'
-import { signIn } from '@/api/auth.api'
+import { signIn, verifySecondFactor } from '@/api/auth.api'
 import { useSession } from '@/auth/useSession'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { FormField } from '@/components/forms/FormField'
@@ -9,12 +9,14 @@ import { inputClassName } from '@/components/ui/fieldStyles'
 import { setPageMetadata } from '@/utils/metadata'
 
 export function AdminLoginPage() {
-  const { status, signInAs } = useSession()
+  const { status, signInAs, signOutAndClear } = useSession()
   const navigate = useNavigate()
   const location = useLocation()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [mfaRequired, setMfaRequired] = useState(false)
+  const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -40,8 +42,16 @@ export function AdminLoginPage() {
     setError(null)
 
     try {
-      const { admin } = await signIn(email.trim(), password)
-      signInAs(admin)
+      const result = await signIn(email.trim(), password)
+
+      if ('mfaRequired' in result) {
+        setMfaRequired(true)
+        setPassword('')
+        setCode('')
+        return
+      }
+
+      signInAs(result.admin)
       navigate(destination, { replace: true })
     } catch (caught) {
       setError(
@@ -52,6 +62,35 @@ export function AdminLoginPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const { admin } = await verifySecondFactor(code.trim())
+      signInAs(admin)
+      navigate(destination, { replace: true })
+    } catch (caught) {
+      setCode('')
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : 'The code could not be verified. Check your connection and try again.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function startOver() {
+    await signOutAndClear()
+    setMfaRequired(false)
+    setPassword('')
+    setCode('')
+    setError(null)
   }
 
   return (
@@ -66,50 +105,96 @@ export function AdminLoginPage() {
           </div>
 
           <div className="bg-ivory p-8 text-charcoal sm:p-10">
-            <h1 className="text-h3">Sign in</h1>
+            <h1 className="text-h3">{mfaRequired ? 'Two-factor authentication' : 'Sign in'}</h1>
             <p className="mt-2 text-body-sm text-charcoal/70">
-              Administrative access is limited to the portfolio owner.
+              {mfaRequired
+                ? 'Enter the 6-digit code from your authenticator app, or one of your recovery codes.'
+                : 'Administrative access is limited to the portfolio owner.'}
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
-              {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
+            {mfaRequired ? (
+              <form onSubmit={handleCodeSubmit} className="mt-8 space-y-5" noValidate>
+                {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
 
-              <FormField id="email" label="Email" required>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="username"
+                <FormField
+                  id="mfa-code"
+                  label="Authentication code"
                   required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  aria-invalid={error ? true : undefined}
-                  className={inputClassName}
-                />
-              </FormField>
+                  hint="Recovery codes work in the same field."
+                >
+                  <input
+                    id="mfa-code"
+                    name="code"
+                    type="text"
+                    autoComplete="one-time-code"
+                    autoFocus
+                    required
+                    spellCheck={false}
+                    maxLength={32}
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    className={inputClassName}
+                  />
+                </FormField>
 
-              <FormField id="password" label="Password" required>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  aria-invalid={error ? true : undefined}
-                  className={inputClassName}
-                />
-              </FormField>
+                <button
+                  type="submit"
+                  disabled={submitting || code.trim().length < 6}
+                  className="min-h-12 w-full bg-gold px-6 text-body-sm font-medium text-charcoal transition-colors duration-150 ease-standard hover:bg-[#d3bb8d] disabled:opacity-60"
+                >
+                  {submitting ? 'Verifying…' : 'Verify and sign in'}
+                </button>
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="min-h-12 w-full bg-gold px-6 text-body-sm font-medium text-charcoal transition-colors duration-150 ease-standard hover:bg-[#d3bb8d] disabled:opacity-60"
-              >
-                {submitting ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
+                <button
+                  type="button"
+                  onClick={() => void startOver()}
+                  className="min-h-10 w-full text-caption text-charcoal/70 underline underline-offset-4 hover:text-charcoal"
+                >
+                  Use a different account
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+                {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
+
+                <FormField id="email" label="Email" required>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="username"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    className={inputClassName}
+                  />
+                </FormField>
+
+                <FormField id="password" label="Password" required>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    className={inputClassName}
+                  />
+                </FormField>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="min-h-12 w-full bg-gold px-6 text-body-sm font-medium text-charcoal transition-colors duration-150 ease-standard hover:bg-[#d3bb8d] disabled:opacity-60"
+                >
+                  {submitting ? 'Signing in…' : 'Sign in'}
+                </button>
+              </form>
+            )}
 
             <p className="mt-6 text-caption text-muted-light">
               There is no public registration. Accounts are provisioned by the site owner.

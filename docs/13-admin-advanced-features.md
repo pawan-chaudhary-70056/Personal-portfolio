@@ -373,6 +373,18 @@ The audit screen should support:
 
 The interface must escape untrusted values and avoid exposing secrets.
 
+### 8.6 Sign-in monitoring
+
+The audit screen summarises authentication activity above the event table so an owner can spot failed sign-in attempts without filtering the log by hand.
+
+Requirements:
+
+- Show rolling-window totals for failed sign-ins, failed verification codes, and successful sign-ins (24 hours, 7 days, or 30 days).
+- Group failed sign-ins by source address, most frequent first, with counts and last-seen times.
+- List the most recent failures with the targeted account, a readable reason, source address, and sanitized device description.
+- Owner-only and read-only; the summary must not expose audit metadata, passwords, tokens, or session identifiers.
+- Render untrusted values as text, never as markup, and keep loading and failure states visible.
+
 ## 9. Session Management
 
 ### 9.1 Purpose

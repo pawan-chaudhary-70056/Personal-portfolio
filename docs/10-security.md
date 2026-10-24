@@ -148,6 +148,35 @@ If password changes or recovery are implemented:
 - Avoid exposing whether an account exists during recovery.
 - Do not implement a recovery interface without a secure backend workflow.
 
+### 5.5 Two-factor authentication
+
+Administrators may protect their own account with a time-based one-time password (TOTP) second factor. Enrolment is self-service from `/admin/security`; an owner cannot enable or disable it for another account.
+
+Requirements and implemented behaviour:
+
+- The password check alone never authenticates an MFA-enabled account. It creates a pending challenge on an otherwise unauthenticated session; `requireAdmin` rejects that session until the second factor succeeds.
+- The pending challenge expires after 10 minutes and allows 5 incorrect codes, after which the session is destroyed. A separate rate limiter covers `POST /api/auth/mfa`.
+- A successful second factor regenerates the session identifier, sets `loggedInAt`, and is the only path that marks `lastLoginAt`.
+- Codes are verified against the current 30-second step with one step of clock drift. The accepted step is persisted and later steps must be strictly greater, so an observed or replayed code fails.
+- TOTP secrets (including the pending secret created during setup) are encrypted with AES-256-GCM. The key is derived from `SESSION_SECRET` through HKDF, so no additional deployment secret is required. Rotating `SESSION_SECRET` makes stored secrets undecryptable; affected accounts must enrol again, and the API fails closed rather than accepting a code it cannot verify.
+- Enrolment returns ten recovery codes exactly once. Only Argon2id hashes of the normalized codes are stored, and comparison is timing-safe through the password verifier. Redemption marks the row used instead of deleting it, so the remaining-code count stays accurate.
+- Disabling MFA requires the password and a current authenticator code (or a recovery code), clears the stored secret, deletes unused recovery codes, and revokes the account's other sessions.
+- Enabling, disabling, and regenerating recovery codes revoke other sessions and append `MFA_ENABLED`, `MFA_DISABLED`, or `MFA_RECOVERY_CODES_REGENERATED` audit events. Secrets and codes are never written to the audit log or API errors.
+- Backup codes are the documented recovery path. There is no email or SMS fallback, and an account that loses both its authenticator and its recovery codes must be reset by an owner through `create-admin` or a password reset.
+
+### 5.6 Sign-in monitoring
+
+Owners can review authentication activity from the activity log (`/admin/audit-logs`), which shows a sign-in monitoring summary above the event table.
+
+Implemented behaviour:
+
+- `GET /api/admin/login-monitoring?days=1|7|30` (owner-only, read-only) aggregates the authentication events already written to the audit trail over a rolling window ending now. The window is validated to 1–30 days.
+- The report contains totals (failed sign-ins, failed second-factor codes, successful sign-ins), failed sign-ins grouped by source IP address with counts and last-seen times (top 10), and up to 20 recent failures with the attempted account, reason, source address, and a sanitized device description.
+- The endpoint returns a fixed field set: no raw audit metadata, passwords, tokens, or session identifiers. It has no write operations, and the interface renders every value as text.
+- The summary reads the same append-only records as the audit log, so no separate storage or write path exists and the view cannot drift from the trail.
+
+Failed sign-ins themselves are recorded by the login endpoint (§5.3); monitoring only reads those records and adds no new data collection.
+
 ## 6. Session Management
 
 ### 6.1 Server-side sessions

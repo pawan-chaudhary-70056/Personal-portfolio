@@ -29,6 +29,8 @@ const projectFields = {
   liveUrl: optionalHttpUrlSchema,
   repositoryUrl: optionalHttpUrlSchema,
   imageUrl: optionalHttpUrlSchema,
+  /** Uploaded cover from the media library; an alternative to `imageUrl`. */
+  coverMediaId: z.string().trim().min(1).max(64).nullable(),
   imageAlt: z
     .string()
     .trim()
@@ -42,7 +44,8 @@ const projectFields = {
 
 /**
  * One gallery image. Alt text is mandatory so a screenshot is never published
- * without a description for assistive technology.
+ * without a description for assistive technology. A row uses exactly one
+ * source: an uploaded library asset or an external URL.
  */
 export const screenshotSchema = z
   .object({
@@ -50,7 +53,17 @@ export const screenshotSchema = z
       .string()
       .trim()
       .max(2048, 'URL is too long.')
-      .regex(/^https?:\/\/[^\s]+$/i, 'Enter a valid http(s) URL.'),
+      .regex(/^https?:\/\/[^\s]+$/i, 'Enter a valid http(s) URL.')
+      .nullish()
+      .transform((value) => value ?? null),
+    /** Uploaded gallery asset; an alternative to `url`. */
+    mediaId: z
+      .string()
+      .trim()
+      .min(1, 'Choose an image from the media library.')
+      .max(64)
+      .nullish()
+      .transform((value) => value ?? null),
     alt: z
       .string()
       .trim()
@@ -59,6 +72,10 @@ export const screenshotSchema = z
     caption: optionalTextSchema(200),
   })
   .strict()
+  .refine((value) => Boolean(value.url) !== Boolean(value.mediaId), {
+    path: ['mediaId'],
+    message: 'Choose either an image from the library or an external URL.',
+  })
 
 export const screenshotsField = z
   .array(screenshotSchema)
@@ -67,6 +84,14 @@ export const screenshotsField = z
 const projectScreenshots = { screenshots: screenshotsField }
 
 const baseProjectSchema = z.object({ ...projectFields, ...projectScreenshots })
+
+/**
+ * A cover is either an uploaded asset or an external URL, never both: the two
+ * inputs in the dashboard mirror each other and picking one clears the other.
+ */
+function singleCoverSource(value: { coverMediaId?: string | null; imageUrl?: string | null }) {
+  return !(value.coverMediaId && value.imageUrl)
+}
 
 export const createProjectSchema = baseProjectSchema
   .partial({
@@ -77,6 +102,7 @@ export const createProjectSchema = baseProjectSchema
     liveUrl: true,
     repositoryUrl: true,
     imageUrl: true,
+    coverMediaId: true,
     imageAlt: true,
     status: true,
     featured: true,
@@ -84,12 +110,20 @@ export const createProjectSchema = baseProjectSchema
     screenshots: true,
   })
   .strict()
+  .refine(singleCoverSource, {
+    path: ['coverMediaId'],
+    message: 'Choose either an uploaded cover or an external image URL.',
+  })
 
 export const updateProjectSchema = baseProjectSchema
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
     message: 'Provide at least one field to update.',
+  })
+  .refine(singleCoverSource, {
+    path: ['coverMediaId'],
+    message: 'Choose either an uploaded cover or an external image URL.',
   })
 
 export const listProjectsQuerySchema = z

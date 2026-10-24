@@ -262,7 +262,7 @@ await page.locator('#screenshot-0-url').fill(screenshotUrl)
 await page.getByRole('button', { name: 'Create project' }).click()
 check(
   await waitVisible(
-    page.getByText('Each screenshot needs an image URL and alt text.'),
+    page.getByText('Each screenshot needs an image and alt text.'),
   ),
   'an incomplete screenshot row blocks submission with a message',
 )
@@ -859,6 +859,16 @@ const patchHomepageDraft = async (fields) =>
     data: fields,
   })
 
+// The previous draft bytes are captured before uploading: replacing a draft
+// portrait deletes the superseded asset, so fetching it afterwards returns 404.
+const originalDraftBytes = originalDraft.portrait
+  ? await page.request.get(`${BASE_URL}${originalDraft.portrait.url}`)
+  : null
+check(
+  !originalDraftBytes || originalDraftBytes.ok(),
+  'the previous draft portrait bytes are readable before verification',
+)
+
 await page.setInputFiles('#hero-portrait-file', heroPngPath)
 check(
   await waitVisible(page.getByText('Local preview of')),
@@ -890,8 +900,7 @@ let removedPortraitPreviewPath = null
 if (hadPortrait) {
   // Restore path: put the original draft back instead of publishing, so a
   // real homepage portrait is never replaced or removed by verification.
-  if (originalDraft.portrait) {
-    const originalBytes = await page.request.get(`${BASE_URL}${originalDraft.portrait.url}`)
+  if (originalDraft.portrait && originalDraftBytes?.ok()) {
     const extension =
       originalDraft.portrait.mimeType === 'image/webp'
         ? 'webp'
@@ -904,7 +913,7 @@ if (hadPortrait) {
         file: {
           name: `portrait.${extension}`,
           mimeType: originalDraft.portrait.mimeType,
-          buffer: await originalBytes.body(),
+          buffer: await originalDraftBytes.body(),
         },
       },
     })
@@ -913,6 +922,10 @@ if (hadPortrait) {
       portraitAlt: originalDraft.portrait.alt || null,
     })
     check(restoredAlt.ok(), 'the previous portrait description is restored')
+
+    // Replacing the draft deleted the superseded asset, so the page still holds
+    // a preview URL for it until it is reloaded.
+    removedPortraitPreviewPath = `/api/admin/media/${originalDraft.portrait.id}/file`
   } else {
     const cleared = await page.request.delete(`${BASE_URL}/api/admin/homepage/portrait`, {
       headers: { 'x-csrf-token': await currentCsrfToken() },
@@ -982,6 +995,113 @@ if (hadPortrait) {
   check(restoreDraft.ok(), 'the previous homepage draft settings are restored')
 }
 
+// --------------------------------------------- hero portrait media picker
+// A library image is selected instead of uploaded, then the draft is restored
+// so the check leaves the homepage configuration exactly as it found it.
+const heroLibraryFilename = `e2e-hero-library-${Date.now()}.png`
+const heroLibraryPath = join(tmpdir(), heroLibraryFilename)
+writeFileSync(heroLibraryPath, readFileSync(heroPngPath))
+
+const heroLibraryUpload = await page.request.post(`${BASE_URL}/api/admin/media`, {
+  headers: { 'x-csrf-token': await currentCsrfToken() },
+  multipart: {
+    file: {
+      name: heroLibraryFilename,
+      mimeType: 'image/png',
+      buffer: readFileSync(heroLibraryPath),
+    },
+  },
+})
+check(heroLibraryUpload.ok(), 'a second library image is uploaded for the hero picker')
+const heroLibraryAsset = (await heroLibraryUpload.json()).media
+
+const heroDraftBeforePicker = (
+  await (await page.request.get(`${BASE_URL}/api/admin/homepage`)).json()
+).homepage.draft
+const heroDraftBytes = heroDraftBeforePicker.portrait
+  ? await page.request.get(`${BASE_URL}${heroDraftBeforePicker.portrait.url}`)
+  : null
+
+await page.goto(`${BASE_URL}/admin/homepage`, { waitUntil: 'networkidle' })
+await page.getByRole('button', { name: 'Choose from library' }).click()
+const heroLibraryDialog = page.getByRole('dialog')
+await heroLibraryDialog.waitFor({ timeout: 5000 })
+check(
+  await waitVisible(
+    heroLibraryDialog.getByRole('button', { name: new RegExp(heroLibraryFilename) }),
+  ),
+  'the homepage picker lists library images',
+)
+await heroLibraryDialog
+  .locator('button')
+  .filter({ has: page.locator(`img[src$="/${heroLibraryAsset.id}/file"]`) })
+  .first()
+  .click()
+check(
+  await waitVisible(page.getByText('Library image selected as the draft portrait.')),
+  'selecting a library portrait reports success',
+)
+
+const heroPicked = (
+  await (await page.request.get(`${BASE_URL}/api/admin/homepage`)).json()
+).homepage.draft
+check(
+  heroPicked.portrait?.id === heroLibraryAsset.id,
+  'the hero picker stores the library reference',
+)
+check(
+  (await page.locator(`img[src="/api/admin/media/${heroLibraryAsset.id}/file"]`).count()) > 0,
+  'the hero picker previews the library image',
+)
+const heroPickPublic = await (await page.request.get(`${BASE_URL}/api/hero`)).json()
+check(
+  (heroPickPublic.hero.portrait?.id ?? null) === (originalPublished?.portrait?.id ?? null),
+  'a picked hero image stays private until published',
+)
+
+if (heroDraftBeforePicker.portrait && heroDraftBytes?.ok()) {
+  const extension =
+    heroDraftBeforePicker.portrait.mimeType === 'image/webp'
+      ? 'webp'
+      : heroDraftBeforePicker.portrait.mimeType === 'image/jpeg'
+        ? 'jpg'
+        : 'png'
+  const restored = await page.request.post(`${BASE_URL}/api/admin/homepage/portrait`, {
+    headers: { 'x-csrf-token': await currentCsrfToken() },
+    multipart: {
+      file: {
+        name: `portrait.${extension}`,
+        mimeType: heroDraftBeforePicker.portrait.mimeType,
+        buffer: await heroDraftBytes.body(),
+      },
+    },
+  })
+  check(restored.ok(), 'the original draft portrait is restored after the picker check')
+} else {
+  await page.getByRole('button', { name: 'Remove draft portrait' }).click()
+  const heroLibraryDialogConfirm = page.getByRole('dialog')
+  await heroLibraryDialogConfirm.waitFor({ timeout: 5000 })
+  await heroLibraryDialogConfirm.getByRole('button', { name: 'Remove portrait' }).click()
+  await page.getByText('Draft portrait removed.').waitFor({ timeout: 10_000 })
+}
+
+const heroLibraryLeftovers = await (
+  await page.request.get(`${BASE_URL}/api/admin/media?search=${heroLibraryFilename}`)
+).json()
+check(heroLibraryLeftovers.total === 0, 'the picked hero image is cleaned up afterwards')
+
+const heroDraftAfterPicker = (
+  await (await page.request.get(`${BASE_URL}/api/admin/homepage`)).json()
+).homepage.draft
+check(
+  heroDraftBeforePicker.portrait
+    ? heroDraftAfterPicker.portrait !== null &&
+        heroDraftAfterPicker.portrait.alt === heroDraftBeforePicker.portrait.alt
+    : heroDraftAfterPicker.portrait === null,
+  'the homepage draft portrait state is restored after the picker check',
+)
+
+rmSync(heroLibraryPath, { force: true })
 rmSync(heroPngPath, { force: true })
 
 // ------------------------------------------------- homepage section layout
@@ -1105,6 +1225,139 @@ check(
   uploadedMedia?.altText === 'E2E media description',
   'the saved description reaches the media API',
 )
+
+// ------------------------------------------- media picker in project forms
+// The same asset is used as the cover and as a gallery row, so the picker is
+// exercised for both sources; the fixture project is purged before the asset
+// is deleted.
+const pickerProjectTitle = `E2E Media Picker ${Date.now()}`
+await page.getByRole('link', { name: 'Projects', exact: true }).first().click()
+await page.waitForURL('**/admin/projects')
+await page.getByRole('link', { name: 'New project' }).first().click()
+await page.waitForURL('**/admin/projects/new')
+await page.getByLabel('Title').first().fill(pickerProjectTitle)
+await page.getByLabel('Summary').fill('A project created to verify the media picker.')
+await page.getByLabel('Year').fill('2026')
+
+await page.getByRole('button', { name: 'Choose from library' }).click()
+const pickerDialog = page.getByRole('dialog')
+await pickerDialog.waitFor({ timeout: 5000 })
+check(
+  await waitVisible(pickerDialog.getByRole('button', { name: new RegExp(mediaFilename) })),
+  'the media picker lists library images',
+)
+await pickerDialog
+  .locator('button')
+  .filter({ has: page.locator(`img[src$="/${uploadedMedia.id}/file"]`) })
+  .first()
+  .click()
+check(
+  await waitVisible(
+    page.locator(`img[src="/api/admin/media/${uploadedMedia.id}/file"]`).first(),
+  ),
+  'picking a library image previews it on the project cover',
+)
+
+await page.getByRole('button', { name: 'Add screenshot' }).click()
+await page
+  .locator('div.border', { has: page.locator('#screenshot-0-upload') })
+  .getByRole('button', { name: 'Choose from library' })
+  .click()
+const galleryPickerDialog = page.getByRole('dialog')
+await galleryPickerDialog.waitFor({ timeout: 5000 })
+await galleryPickerDialog
+  .locator('button')
+  .filter({ has: page.locator(`img[src$="/${uploadedMedia.id}/file"]`) })
+  .first()
+  .click()
+check(
+  await page.locator('#screenshot-0-url').isDisabled(),
+  'the gallery row switches to the picked library image',
+)
+await page.locator('#screenshot-0-alt').fill('E2E library gallery image')
+
+// The second row is added so the gallery order can be changed before saving.
+await page.getByRole('button', { name: 'Add screenshot' }).click()
+await page.locator('#screenshot-1-url').fill('https://example.com/e2e-second.png')
+await page.locator('#screenshot-1-alt').fill('E2E second screenshot')
+
+const galleryRow = (position) =>
+  page
+    .locator('div.border', { has: page.locator(`#screenshot-${position}-upload`) })
+    .first()
+
+// Both rows must be visible for the native drag to reach the drop target.
+await galleryRow(1).scrollIntoViewIfNeeded()
+await galleryRow(0).scrollIntoViewIfNeeded()
+await galleryRow(0)
+  .locator('[draggable="true"]')
+  .dragTo(galleryRow(1), { targetPosition: { x: 20, y: 20 } })
+check(
+  (await page.locator('#screenshot-0-alt').inputValue()) === 'E2E second screenshot',
+  'dragging a gallery row moves it to the new position',
+)
+check(
+  (await page.locator('#screenshot-1-alt').inputValue()) === 'E2E library gallery image',
+  'the displaced gallery row takes the vacated position',
+)
+
+await page.getByRole('button', { name: 'Create project' }).click()
+await page.waitForURL(/\/admin\/projects\/(?!new$)[^/]+$/, { timeout: 10_000 })
+
+const pickerProject = await page.evaluate(async (projectTitle) => {
+  const response = await fetch(
+    `/api/admin/projects?search=${encodeURIComponent(projectTitle)}`,
+  )
+  const body = await response.json()
+  const summaryItem = body.items.find((item) => item.title === projectTitle)
+
+  if (!summaryItem) return null
+
+  // The list omits the gallery; the detail read returns the saved references.
+  const detail = await fetch(`/api/admin/projects/${summaryItem.id}`)
+  return (await detail.json()).project
+}, pickerProjectTitle)
+check(
+  pickerProject?.coverMediaId === uploadedMedia.id,
+  'the cover picker saves the library reference',
+)
+check(
+  pickerProject?.screenshots?.[0]?.url === 'https://example.com/e2e-second.png',
+  'the dragged gallery order is saved',
+)
+check(
+  pickerProject?.screenshots?.[1]?.mediaId === uploadedMedia.id,
+  'the gallery picker saves the library reference',
+)
+
+const mediaInUse = await (
+  await page.request.get(`${BASE_URL}/api/admin/media?search=${mediaFilename}`)
+).json()
+check(mediaInUse.items[0]?.referenced === true, 'a library image used by a project is marked referenced')
+check(
+  (await page.request.get(`${BASE_URL}/api/media/project-cover/${uploadedMedia.id}`)).status() ===
+    404,
+  'a draft project keeps its picked cover private',
+)
+check(
+  (
+    await page.request.delete(`${BASE_URL}/api/admin/media/${uploadedMedia.id}`, {
+      headers: { 'x-csrf-token': await currentCsrfToken() },
+    })
+  ).status() === 409,
+  'deleting a library image used by a project is refused',
+)
+
+const pickerTrash = await trashProjectThroughApi(pickerProject.id)
+check(pickerTrash.ok(), 'the media picker fixture project is trashed')
+const pickerPurge = await page.request.delete(
+  `${BASE_URL}/api/admin/trash/project/${pickerProject.id}`,
+  { headers: { 'x-csrf-token': await currentCsrfToken() } },
+)
+check(pickerPurge.ok(), 'the media picker fixture project is purged')
+
+await page.goto(`${BASE_URL}/admin/media`, { waitUntil: 'networkidle' })
+await page.getByRole('heading', { name: 'Media library', exact: true }).waitFor({ timeout: 10_000 })
 
 await mediaCard.getByRole('button', { name: 'Delete' }).click()
 const mediaDialog = page.getByRole('dialog')
@@ -1439,11 +1692,47 @@ if (publicProfileBefore.profile) {
 await audit('the profile page')
 
 // ---------------------------------------------------------- activity log
+// The monitoring summary fetches on mount, so register before navigating.
+const monitoringLoaded = page
+  .waitForResponse(
+    (response) =>
+      response.url().includes('/api/admin/login-monitoring') && response.status() === 200,
+    { timeout: 10_000 },
+  )
+  .then(() => true)
+  .catch(() => false)
+
 await page.getByRole('link', { name: 'Activity log' }).first().click()
 await page.waitForURL('**/admin/audit-logs')
 check(
   await waitVisible(page.getByRole('heading', { name: 'Activity log', exact: true })),
   'activity log renders',
+)
+check(await monitoringLoaded, 'the sign-in monitoring summary loads')
+
+// The failed sign-in from the start of this run must be counted.
+const failedTotal = page
+  .locator('dt', { hasText: 'Failed sign-ins' })
+  .locator('..')
+  .locator('dd')
+  .first()
+check(
+  await waitVisible(failedTotal),
+  'the sign-in monitoring totals render',
+)
+const failedCount = Number.parseInt((await failedTotal.textContent()) ?? '', 10)
+check(failedCount >= 1, 'the summary counts the failed sign-in recorded earlier in this run')
+check(
+  await waitVisible(
+    page.getByText(`${ADMIN_EMAIL} · Wrong password`, { exact: false }),
+  ),
+  'the summary names the account and reason of the failed sign-in',
+)
+check(
+  await waitVisible(
+    page.locator('h3', { hasText: 'Failed sign-ins by source' }).locator('+ ul li').first(),
+  ),
+  'the summary groups failures by source address',
 )
 check(
   await waitVisible(page.getByRole('cell', { name: 'Experience moved to trash', exact: true }).first()),

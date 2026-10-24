@@ -520,6 +520,66 @@ export async function uploadDraftPortrait(file: UploadedPortrait, ctx: RequestCo
   return getAdminHomepage()
 }
 
+/**
+ * Reuses an image already in the library as the draft portrait. The library
+ * description fills the draft alt text only when it is currently empty, so an
+ * intentional description is never overwritten. The previously selected draft
+ * asset is removed when nothing else references it.
+ */
+export async function selectDraftPortrait(mediaId: string, ctx: RequestContext) {
+  const asset = await prisma.mediaAsset.findUnique({
+    where: { id: mediaId },
+    select: { id: true, altText: true },
+  })
+
+  if (!asset) {
+    throw new ApiError(400, 'invalid_media', 'Choose an image from the media library.', [
+      { path: 'mediaId', message: 'That image is no longer in the library.' },
+    ])
+  }
+
+  const existing = await prisma.homepageSettings.findUnique({
+    where: { id: SETTINGS_ID },
+    select: { draftPortraitId: true, draftPortraitAlt: true },
+  })
+
+  const previousDraftId = existing?.draftPortraitId ?? null
+  const draftPortraitAlt = existing?.draftPortraitAlt?.trim()
+    ? existing.draftPortraitAlt
+    : (asset.altText ?? null)
+
+  await prisma.$transaction(async (tx) => {
+    await tx.homepageSettings.upsert({
+      where: { id: SETTINGS_ID },
+      create: {
+        id: SETTINGS_ID,
+        draftPortraitId: asset.id,
+        draftPortraitAlt,
+      },
+      update: { draftPortraitId: asset.id, draftPortraitAlt },
+    })
+
+    await recordAudit(
+      {
+        action: 'HOMEPAGE_DRAFT_UPDATED',
+        entityType: 'HomepageSettings',
+        entityId: SETTINGS_ID,
+        adminId: ctx.adminId,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { fields: ['portrait'], source: 'library', mediaId: asset.id },
+      },
+      tx,
+    )
+  })
+
+  if (previousDraftId && previousDraftId !== asset.id) {
+    await deleteIfUnreferenced(previousDraftId)
+  }
+
+  return getAdminHomepage()
+}
+
 export async function removeDraftPortrait(ctx: RequestContext) {
   const existing = await prisma.homepageSettings.findUnique({
     where: { id: SETTINGS_ID },

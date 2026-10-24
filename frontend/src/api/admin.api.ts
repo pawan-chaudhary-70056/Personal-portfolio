@@ -2,6 +2,7 @@ import type {
   AdminSession,
   AuditLogPage,
   AuditLogQuery,
+  LoginMonitoring,
   OverviewResponse,
 } from '@/@types/admin'
 import { apiRequest } from '@/api/client'
@@ -24,6 +25,14 @@ export function listAuditLogs(
 
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
   return apiRequest<AuditLogPage>(`/admin/audit-logs${suffix}`, { signal })
+}
+
+/** Failed-login monitoring summary for a rolling window ending now. */
+export function getLoginMonitoring(
+  days: number,
+  signal?: AbortSignal,
+): Promise<LoginMonitoring> {
+  return apiRequest<LoginMonitoring>(`/admin/login-monitoring?days=${days}`, { signal })
 }
 
 export async function listSessions(signal?: AbortSignal): Promise<AdminSession[]> {

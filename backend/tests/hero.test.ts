@@ -53,6 +53,16 @@ function upload(
     .attach('file', file, { filename, contentType: 'image/png' })
 }
 
+async function libraryAsset(agent: TestAgent, token: string, name = 'library.png'): Promise<string> {
+  const created = await agent
+    .post('/api/admin/media')
+    .set('x-csrf-token', token)
+    .attach('file', PNG, { filename: name, contentType: 'image/png' })
+    .expect(201)
+
+  return created.body.media.id as string
+}
+
 async function fileExists(storageKey: string): Promise<boolean> {
   try {
     await access(path.join(mediaRootPath(), storageKey))
@@ -359,6 +369,116 @@ describe('homepage hero portrait', () => {
       where: { action: 'HOMEPAGE_DRAFT_UPDATED' },
     })
     expect(audit?.entityType).toBe('HomepageSettings')
+  })
+
+  it('reuses a library image as the draft portrait and publishes it', async () => {
+    const { agent, token } = await signedInAgent()
+    const assetId = await libraryAsset(agent, token)
+
+    await agent
+      .patch(`/api/admin/media/${assetId}`)
+      .set('x-csrf-token', token)
+      .send({ altText: 'Library portrait' })
+      .expect(200)
+
+    const unknown = await agent
+      .post('/api/admin/homepage/portrait/library')
+      .set('x-csrf-token', token)
+      .send({ mediaId: 'missing-asset' })
+      .expect(400)
+    expect(unknown.body.error).toBe('invalid_media')
+    expect(unknown.body.details[0].path).toBe('mediaId')
+
+    const selected = await agent
+      .post('/api/admin/homepage/portrait/library')
+      .set('x-csrf-token', token)
+      .send({ mediaId: assetId })
+      .expect(200)
+
+    expect(selected.body.homepage.draft.portrait).toMatchObject({
+      id: assetId,
+      alt: 'Library portrait',
+      width: 1,
+      height: 1,
+    })
+    expect(selected.body.homepage.hasUnpublishedChanges).toBe(true)
+    expect(await prisma.mediaAsset.count()).toBe(1)
+
+    // The draft stays private, and the referenced asset cannot be deleted.
+    const heroBefore = await request(app).get('/api/hero').expect(200)
+    expect(heroBefore.body.hero.portrait).toBeNull()
+    await request(app).get(`/api/media/hero-portrait/${assetId}`).expect(404)
+    await agent
+      .delete(`/api/admin/media/${assetId}`)
+      .set('x-csrf-token', token)
+      .expect(409)
+
+    await agent
+      .post('/api/admin/homepage/publish')
+      .set('x-csrf-token', token)
+      .expect(200)
+
+    const hero = await request(app).get('/api/hero').expect(200)
+    expect(hero.body.hero.portrait).toMatchObject({
+      url: `/api/media/hero-portrait/${assetId}`,
+      alt: 'Library portrait',
+    })
+
+    const served = await request(app).get(`/api/media/hero-portrait/${assetId}`).expect(200)
+    expect(served.headers['content-type']).toBe('image/png')
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: 'HOMEPAGE_DRAFT_UPDATED' },
+    })
+    expect(audit?.metadata).toMatchObject({ source: 'library', mediaId: assetId })
+  })
+
+  it('switches between an upload and a library image without leaking assets', async () => {
+    const { agent, token } = await signedInAgent()
+    const firstLibraryId = await libraryAsset(agent, token, 'first-library.png')
+
+    await agent
+      .post('/api/admin/homepage/portrait/library')
+      .set('x-csrf-token', token)
+      .send({ mediaId: firstLibraryId })
+      .expect(200)
+
+    // Uploading a new portrait supersedes the library draft and removes it.
+    const uploaded = await upload(agent, token).expect(201)
+    const uploadedId = uploaded.body.homepage.draft.portrait.id as string
+    expect(uploadedId).not.toBe(firstLibraryId)
+    expect(await prisma.mediaAsset.findUnique({ where: { id: firstLibraryId } })).toBeNull()
+    expect(await prisma.mediaAsset.count()).toBe(1)
+
+    // Selecting a library image again supersedes the uploaded draft.
+    const secondLibraryId = await libraryAsset(agent, token, 'second-library.png')
+    const switched = await agent
+      .post('/api/admin/homepage/portrait/library')
+      .set('x-csrf-token', token)
+      .send({ mediaId: secondLibraryId })
+      .expect(200)
+    expect(switched.body.homepage.draft.portrait.id).toBe(secondLibraryId)
+    expect(await prisma.mediaAsset.findUnique({ where: { id: uploadedId } })).toBeNull()
+    expect(await prisma.mediaAsset.count()).toBe(1)
+
+    // The published reference, when present, protects its asset.
+    await agent
+      .patch('/api/admin/homepage')
+      .set('x-csrf-token', token)
+      .send({ portraitAlt: 'Second library portrait' })
+      .expect(200)
+    await agent.post('/api/admin/homepage/publish').set('x-csrf-token', token).expect(200)
+
+    const thirdLibraryId = await libraryAsset(agent, token, 'third-library.png')
+    await agent
+      .post('/api/admin/homepage/portrait/library')
+      .set('x-csrf-token', token)
+      .send({ mediaId: thirdLibraryId })
+      .expect(200)
+
+    // The still-published image is kept even though the draft moved on.
+    expect(await prisma.mediaAsset.findUnique({ where: { id: secondLibraryId } })).not.toBeNull()
+    expect(await prisma.mediaAsset.count()).toBe(2)
   })
 
   it('refuses to delete a referenced asset and removes unreferenced ones', async () => {

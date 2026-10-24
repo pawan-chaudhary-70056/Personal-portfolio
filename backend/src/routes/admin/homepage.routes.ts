@@ -6,11 +6,12 @@ import { ApiError } from '../../lib/errors.js'
 import { requestContext } from '../../lib/request-context.js'
 import { mapUploadError } from '../../lib/upload.js'
 import { parseInput } from '../../lib/validate.js'
-import { homepageDraftSchema } from '../../schemas/homepage.schema.js'
+import { homepageDraftSchema, selectPortraitSchema } from '../../schemas/homepage.schema.js'
 import {
   getAdminHomepage,
   publishHomepage,
   removeDraftPortrait,
+  selectDraftPortrait,
   updateHomepageDraft,
   uploadDraftPortrait,
 } from '../../services/homepage.service.js'
@@ -73,6 +74,14 @@ export function createAdminHomepageRouter(): Router {
       res.status(201).json({ homepage })
     },
   )
+
+  // Reuses an existing library image instead of uploading another copy.
+  router.post('/portrait/library', async (req, res) => {
+    const input = parseInput(selectPortraitSchema, req.body)
+    res.json({
+      homepage: await selectDraftPortrait(input.mediaId, requestContext(req)),
+    })
+  })
 
   router.delete('/portrait', async (req, res) => {
     res.json({ homepage: await removeDraftPortrait(requestContext(req)) })

@@ -4,7 +4,7 @@ A modern, responsive, and professionally designed personal portfolio with a secu
 
 The project follows a luxury editorial design direction, combining refined typography, generous whitespace, subtle animations, and a consistent visual system. Portfolio content is managed through the administrative interface and delivered to the public website through a backend API.
 
-> **Project status:** This README describes the intended architecture and requirements. Verify setup commands, environment variables, routes, and feature availability against the actual implementation before using them in production.
+> **Project status:** Implemented and verified. The public site, admin dashboard, API, database migrations, media pipeline, and test suites exist in this repository. Backend typecheck/tests/build, frontend lint/tests/build, and the Playwright verifiers all pass. Not built: blog, downloadable CV, general import/export, responsive image variants, object storage, and automated backup monitoring. See `docs/01-project-overview.md` §15 for the full implemented/not-implemented split.
 
 ---
 
@@ -35,41 +35,40 @@ This project consists of two connected applications.
 
 The public-facing website presents professional information through a refined, responsive interface.
 
-Expected sections include:
+Implemented routes:
 
-- Home and professional introduction, including the admin-managed portrait with a restrained interactive depth effect and a static fallback.
-- About and profile.
-- Projects and project categories.
-- Skills and technical expertise.
-- Professional experience.
-- Education.
-- Certifications.
-- Contact form.
-- SEO and social-sharing metadata.
+| Route | Page |
+|---|---|
+| `/` | Home: introduction, admin-managed hero portrait with a restrained depth effect and a static fallback, featured work, skills, experience, credentials, contact call to action |
+| `/about` | Profile, biography, skills, education, and certifications |
+| `/projects` | All published projects |
+| `/projects/:slug` | Project detail with description, technologies, links, and gallery |
+| `/experience` | Professional experience |
+| `/contact` | Contact information and the validated contact form |
+| `*` | Not-found page |
 
-Content should be retrieved dynamically from the backend rather than hardcoded into page components, except for intentional static interface elements and safe fallback content.
+Skills, education, and certifications share the About page instead of each taking a top-level route. Content is retrieved from the backend API rather than hardcoded in page components, and each page sets its own title, description, and Open Graph metadata.
 
 ### Admin Dashboard
 
 The administrative interface allows authorized users to manage portfolio content without modifying application source code for routine updates.
 
-Expected capabilities include:
+Implemented capabilities:
 
 - Profile and homepage content management, including hero portrait uploads with draft, preview, and publish, plus section ordering, visibility, and featured project selection.
-- Project and category management.
+- Project and project-category management, with covers chosen from the media library or an external URL.
 - Skills and skill-category management.
 - Experience, education, and certification management.
-- Media uploads and media-library management.
-- Draft, preview, publish, and unpublish workflows.
+- Media uploads and media-library management, with search, alt-text editing, and reference-safe deletion; project covers and the profile portrait are picked from the library.
+- Draft, preview, publish, and unpublish workflows, plus scheduled publishing.
 - Bulk publish, unpublish, and trash actions across content lists.
-- Trash with restore and permanent deletion, plus revision history with one-click restore.
-- SEO and site settings: site title, default description, canonical URL, and social sharing image.
-- Contact-message inbox.
-- Search, filtering, sorting, and pagination.
-- Revision history and content recovery.
-- Administrative audit logs and session management.
+- Trash with restore and permanent deletion, and revision history with comparison and one-click restore.
+- Site settings: site title, default description, canonical URL, and social sharing image.
+- Contact-message inbox with status filters and CSV export.
+- Search, filtering, sorting, and pagination on every collection.
+- Owner/Editor administrator accounts, session management, and an append-only audit log with a failed-login monitoring summary.
 
-Advanced capabilities are implemented: scheduled publishing with an automatic publish worker, page-view analytics, a read-only system health panel, and multiple administrator accounts with Owner and Editor roles enforced on the server. Owner-only areas (administrators, site settings, sessions, health, analytics, activity log) are hidden from editors and rejected by the API.
+Advanced capabilities are implemented: scheduled publishing with an automatic publish worker, page-view analytics, and a read-only system health panel. Owner-only areas (administrators, site settings, sessions, health, analytics, activity log) are hidden from editors and rejected by the API.
 
 ## Project Goals
 
@@ -117,55 +116,54 @@ Refer to `docs/04-animation-guidelines.md` for the full motion specification.
 
 ### Public Website
 
-- Responsive page layouts.
-- Dynamic content rendering.
-- Project cards and project details.
-- Accessible contact form.
-- Search-engine metadata.
-- Optimized image delivery.
+- Responsive layouts across mobile, tablet, and desktop.
+- Content rendered from the API, with ordered and hideable homepage sections.
+- Project cards, project detail pages, and gallery screenshots.
+- Accessible contact form with server-side validation and rate limiting.
+- Per-page titles, descriptions, and social metadata.
+- Graceful image fallbacks when an external URL fails, and reserved image dimensions to avoid layout shifts. Responsive `srcset` variants are not generated.
 - Loading, empty, and error states.
-- Reduced-motion support.
+- Reduced-motion support across animations.
 
 ### Content Management
 
 - Create, read, update, and delete supported content.
-- Draft and publication controls.
-- Authenticated draft preview.
+- Draft and publication controls, including scheduled publishing.
+- Authenticated draft preview for homepage configuration.
 - Category and relationship validation.
-- Media selection and alternative-text management.
-- Public content filtering.
-- Cache invalidation after relevant changes.
+- Media selection and alternative-text management, including project gallery screenshots and the homepage portrait uploaded or picked from the library.
+- Public content filtering: only published, non-deleted records reach public endpoints.
+- Immutable caching for uploaded media URLs. There is no server-side content cache, so publication changes are visible immediately.
 
 ### Administration and Operations
 
 - Protected administrative routes.
-- Server-side authentication and authorization.
+- Server-side authentication and authorization, with Owner and Editor roles.
+- Optional two-factor authentication per administrator: TOTP authenticator apps, one-time recovery codes, and a self-service security page.
 - Search, filtering, and pagination.
-- Safe bulk actions where implemented.
-- Revision history and recovery where implemented.
+- Bulk publish, unpublish, and trash actions.
+- Revision history, comparison, and recovery.
 - Audit logs for significant events.
-- Session management.
-- Optional analytics and system-health information.
+- Session listing and revocation.
+- Page-view analytics and a read-only system health panel.
 
 ## Technology Stack
 
-The proposed stack is:
-
 | Layer | Technology |
 |---|---|
-| Frontend | React, TypeScript, Vite |
-| Styling | Tailwind CSS |
-| Backend | Node.js, Express, TypeScript |
-| API | REST API, versioned under `/api/v1` |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Validation | Zod |
-| Authentication | Server-side sessions and Argon2id password hashing |
-| Testing | Vitest, React Testing Library, Playwright |
-| Containers | Docker and Docker Compose |
-| CI/CD | GitHub Actions |
+| Frontend | React 19, TypeScript, Vite 8, React Router 7 |
+| Styling | Tailwind CSS 4 with design tokens in `frontend/src/themes/tokens.css` |
+| Backend | Node.js 24, Express 5, TypeScript |
+| API | REST under `/api` (no version prefix) |
+| Database | PostgreSQL 18 |
+| ORM | Prisma 6 with committed migrations |
+| Validation | Zod schemas on the API; the forms mirror the same rules |
+| Authentication | PostgreSQL-backed server sessions and Argon2id password hashing, with optional TOTP second factor |
+| Testing | Vitest, React Testing Library, and Playwright verifier scripts |
+| Containers | Dockerfiles for both apps plus `docker-compose.yml` (dev database) and `docker-compose.prod.yml` (single-origin stack) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) on Node 24 |
 
-Confirm actual package versions and installed dependencies from the repository's package manifests and lockfiles. Do not install or upgrade dependencies solely because they are listed in this document.
+Versions are pinned in `backend/package.json`, `frontend/package.json`, and their lockfiles. CI is the reference environment for the Node version.
 
 ## System Architecture
 
@@ -181,12 +179,12 @@ flowchart TD
     E --> F[Validation and Business Logic]
     F --> G[(PostgreSQL)]
     F --> H[Media Storage]
-    F --> I[Cache Layer]
 
-    G --> J[Public Content Queries]
+    G --> J[Published Content Queries]
     H --> J
-    I --> J
     J --> C
+
+    J -.-> K[HTTP caching for immutable media URLs]
 ```
 
 ### Architecture Responsibilities
@@ -214,191 +212,152 @@ flowchart TD
 - Uses safe generated storage keys.
 - Separates public and restricted assets when required.
 
-**Cache Layer**
-- Improves performance where appropriate.
-- Must never bypass authorization or publication rules.
-- Must be invalidated when relevant content changes.
+**Caching**
+- Uploaded media is served from immutable, content-addressed URLs with long-lived `Cache-Control` headers.
+- Public content responses are marked `no-store`, so publishing is visible immediately; there is no cache to invalidate.
 
 ## Project Structure
 
-The exact directory structure must match the repository. The following is a suggested high-level layout:
-
 ```text
-personal-portfolio/
-├── frontend/
-│   ├── src/
-│   │   ├── @types/
-│   │   ├── api/
-│   │   ├── assets/
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── pages/
-│   │   ├── routes/
-│   │   ├── templates/
-│   │   ├── themes/
-│   │   ├── utils/
-│   │   └── validators/
-│   └── package.json
+.
 ├── backend/
 │   ├── src/
-│   │   ├── @types/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── helpers/
-│   │   ├── middlewares/
-│   │   ├── models/
+│   │   ├── config/        # validated environment configuration
+│   │   ├── db/            # Prisma client singleton
+│   │   ├── lib/           # errors, validation, audit, images, media URLs, revisions
+│   │   ├── middleware/    # session guard, role guard, CSRF verification
 │   │   ├── routes/
-│   │   ├── services/
-│   │   ├── validators/
-│   │   ├── integrations/
-│   │   └── jobs/
-│   ├── prisma/
-│   └── package.json
-├── docs/
-│   ├── 01-project-overview.md
-│   ├── 02-portfolio-requirements.md
-│   ├── 03-design-system.md
-│   ├── 04-animation-guidelines.md
-│   ├── 05-system-architecture.md
-│   ├── 06-frontend-architecture.md
-│   ├── 07-backend-api.md
-│   ├── 08-database-schema.md
-│   ├── 09-admin-dashboard.md
-│   ├── 10-security.md
-│   ├── 11-testing-and-qa.md
-│   ├── 12-deployment-and-maintenance.md
-│   ├── 13-admin-advanced-features.md
-│   └── 14-dynamic-content-and-media-management.md
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── backend/
-│   └── Dockerfile
-├── frontend/
+│   │   │   ├── admin/     # authenticated content and settings endpoints
+│   │   │   └── public/    # published content, hero, media, contact, analytics
+│   │   ├── schemas/       # Zod request schemas
+│   │   ├── scripts/       # create-admin
+│   │   ├── services/      # business logic, publishing, media, revisions, scheduling
+│   │   ├── types/         # Express session augmentation
+│   │   ├── app.ts
+│   │   └── index.ts
+│   ├── prisma/            # schema.prisma, migrations, test-database init
+│   ├── tests/             # Vitest integration tests against PostgreSQL
+│   ├── storage/media/     # uploaded files in development (git-ignored)
 │   ├── Dockerfile
-│   └── nginx.conf
-├── docker-compose.yml
-├── docker-compose.prod.yml
-├── .env.example
-├── .gitignore
+│   └── package.json
+├── frontend/
+│   ├── src/
+│   │   ├── @types/        # API and admin type contracts
+│   │   ├── api/           # typed fetch clients
+│   │   ├── auth/          # session context
+│   │   ├── components/    # admin, forms, layout, navigation, portfolio, ui, feedback
+│   │   ├── content/       # static navigation definitions
+│   │   ├── hooks/         # data loading, bulk selection, reduced motion
+│   │   ├── pages/         # admin, public, and error pages
+│   │   ├── portfolio/     # published content provider and hooks
+│   │   ├── routes/        # public and admin route trees
+│   │   ├── templates/     # PublicLayout and AdminLayout
+│   │   ├── themes/        # design tokens
+│   │   ├── utils/         # payload builders, formatting, metadata, CSV, diffs
+│   │   ├── global.css
+│   │   └── main.tsx
+│   ├── scripts/           # Playwright verifiers and screenshot capture
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   └── package.json
+├── docs/                  # 14 numbered specifications
+├── .github/workflows/     # ci.yml
+├── docker-compose.yml     # local PostgreSQL only
+├── docker-compose.prod.yml # database, API, and nginx web container
 └── README.md
 ```
 
-This is a reference layout, not a command to restructure an existing repository. Keep the established folder names and package boundaries unless a deliberate architectural change is approved.
+Development commands run from `backend/` and `frontend/`; there is no root `package.json`.
 
 ## Getting Started
 
 ### Prerequisites
 
-Install and configure the versions required by the actual project:
-
-- Node.js and npm.
-- PostgreSQL.
+- Node.js 24 and npm. CI pins Node 24; no `engines` field enforces it locally.
+- Docker with Compose, for the development PostgreSQL container.
 - Git.
-- Docker and Docker Compose, if containerized development is configured.
-
-Use the `engines` field and package lockfiles to determine the required Node.js version.
 
 ### 1. Clone the Repository
 
 ```bash
-git clone <YOUR_REPOSITORY_URL>
-cd <YOUR_PROJECT_DIRECTORY>
+git clone <repository-url>
+cd <project-directory>
 ```
 
-Replace the placeholders with the actual repository URL and directory.
+### 2. Install Dependencies
 
-### 2. Configure Environment Variables
-
-Create environment files from the project's example files if they exist.
+The two applications are separate npm packages with committed lockfiles:
 
 ```bash
-cp .env.example .env
+cd backend && npm ci
+cd ../frontend && npm ci
 ```
 
-Repeat for frontend or backend-specific example files if the project defines them. Never overwrite an existing environment file without preserving its current configuration.
+### 3. Start PostgreSQL
 
-### 3. Install Dependencies
-
-Run commands in the directory containing each actual `package.json`.
+The development Compose file runs PostgreSQL only:
 
 ```bash
-npm ci
-```
-
-If the frontend and backend are separate npm packages, install dependencies separately in each package directory. Run `npm ci` only when a compatible lockfile exists.
-
-### 4. Configure the Database
-
-Create the development database and configure the connection string.
-
-Use the Prisma CLI version pinned by the project. A typical migration workflow is:
-
-```bash
-npx prisma generate
-npx prisma migrate dev
-```
-
-These commands are examples for a project using the corresponding Prisma CLI version and migration setup. Verify the installed CLI's supported commands and follow the existing migration history. Do not run development migrations against production.
-
-### 5. Start Development Servers
-
-Use the scripts defined in each package's `package.json`.
-
-Typical examples:
-
-```bash
-npm run dev
-```
-
-Run this from the appropriate frontend or backend package directory. Actual script names may differ.
-
-### 6. Start with Docker Compose
-
-If the repository includes a working Compose configuration:
-
-```bash
-docker compose config
-docker compose up -d --build
+docker compose up -d db
 docker compose ps
 ```
 
-Inspect service health and logs before using the application:
+The database listens on `127.0.0.1:5433` (port 5433 avoids clashing with a local PostgreSQL on 5432). On first initialization its init script also creates `portfolio_test`, which the backend test suite uses.
+
+### 4. Configure the Backend Environment
 
 ```bash
-docker compose logs --tail=100
+cp backend/.env.example backend/.env
 ```
 
-Container names, ports, health checks, and available services depend on the actual Compose file.
+Replace `SESSION_SECRET` with a generated value (`openssl rand -hex 32`) and set the `ADMIN_*` values used when creating the first administrator. The frontend needs no environment file: Vite proxies `/api` to `http://127.0.0.1:4000`, so the browser sees a single origin and session cookies behave as they do in production.
+
+### 5. Apply Migrations and Create an Administrator
+
+```bash
+cd backend
+npx prisma generate
+npx prisma migrate dev
+npm run create-admin
+```
+
+`create-admin` reads `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_NAME` from `backend/.env` and is not used by the API at runtime.
+
+### 6. Start Development Servers
+
+Run each in its own terminal:
+
+```bash
+cd backend && npm run dev    # http://localhost:4000
+cd frontend && npm run dev   # http://localhost:5173
+```
+
+Sign in at `http://localhost:5173/admin/login`.
+
+### 7. Production-Shaped Stack (optional)
+
+`docker-compose.prod.yml` builds the API and web images and runs PostgreSQL; see [Container Deployment](#container-deployment).
 
 ## Environment Configuration
 
-Use `.env.example` to document required variable names without real credentials.
+`backend/.env.example` is the only environment template. The frontend has no environment variables.
 
-Typical configuration categories include:
-
-| Category | Purpose |
+| Variable | Purpose |
 |---|---|
-| Application | Environment name and server port |
-| Database | PostgreSQL connection URL |
-| Session | Session secret and cookie settings |
-| Security | Allowed origins and security-related settings |
-| Media | Storage provider and bucket configuration, if used |
-| Email | SMTP connection and sender settings, if used |
-| Cache | Cache connection, if used |
-| Observability | Logging and monitoring configuration, if used |
+| `NODE_ENV` | `development`, `test`, or `production` |
+| `PORT` | API port (default `4000`) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SESSION_SECRET` | Session signing secret; at least 32 characters. Also derives the AES-256-GCM key that encrypts stored MFA secrets, so rotating it unenrols every second factor |
+| `SESSION_COOKIE_NAME` | Session cookie name (default `portfolio.sid`) |
+| `FRONTEND_ORIGIN` | Allowed credentialed origin in development |
+| `MEDIA_ROOT` | Upload directory, relative to `backend/` |
+| `MEDIA_MAX_BYTES` | Maximum upload size (default 8 MB) |
+| `MEDIA_UPLOAD_LIMIT_PER_HOUR` | Upload rate limit per client IP |
+| `TRUST_PROXY` | Trust `X-Forwarded-For`; enable only behind a trusted proxy |
+| `LOGIN_RATE_LIMIT_MAX` | Failed sign-ins allowed per 15 minutes per IP |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | Used only by `npm run create-admin` |
 
-Example variable names:
-
-```dotenv
-NODE_ENV=development
-PORT=4000
-DATABASE_URL=
-SESSION_SECRET=
-FRONTEND_ORIGIN=http://localhost:5173
-```
-
-This is a naming example, not a complete or verified environment template. Match the actual application's configuration schema.
+`docker-compose.prod.yml` supplies its own values: `POSTGRES_PASSWORD`, `SESSION_SECRET`, `PUBLIC_ORIGIN`, `MEDIA_MAX_BYTES`, `MEDIA_UPLOAD_LIMIT_PER_HOUR`, `LOGIN_RATE_LIMIT_MAX`, and `WEB_PORT`. There are no email, cache, or observability integrations to configure.
 
 ### Environment Security
 
@@ -417,7 +376,7 @@ This is a naming example, not a complete or verified environment template. Match
 3. Implement the smallest coherent change.
 4. Update validation, API contracts, and migrations where needed.
 5. Add or update automated tests.
-6. Run linting, formatting, type checking, and relevant tests.
+6. Run linting, type checking, the relevant tests, and the build.
 7. Review security and accessibility impacts.
 8. Update documentation to reflect actual behaviour.
 9. Review the Git diff before committing.
@@ -435,12 +394,13 @@ Use specific file paths instead of blindly staging generated files, secrets, or 
 
 ## Security
 
-Security is a core requirement for both the public website and Admin Dashboard.
+Security is enforced for both the public website and Admin Dashboard.
 
-Required controls include:
+Implemented controls:
 
 - Server-side authentication and authorization.
 - Secure password hashing.
+- Optional TOTP two-factor authentication with hashed, single-use recovery codes.
 - Secure session management.
 - CSRF protection when applicable.
 - Input validation and safe output rendering.
@@ -449,10 +409,11 @@ Required controls include:
 - Secure file-upload validation.
 - Publication filtering on the backend.
 - Restricted administrative endpoints.
-- Safe error handling and secret redaction.
-- Dependency and container scanning where configured.
-- Database backup and recovery procedures.
+- Safe error handling that does not leak stack traces or storage paths.
+- Database backup and recovery procedures (documented; run outside the application).
 - Audit logging for sensitive administrative actions.
+
+Dependency auditing is a documented release step, not an automated CI job; the container images are built but not scanned in CI.
 
 Public API endpoints must never expose drafts, private messages, session information, or administrative records.
 
@@ -462,26 +423,28 @@ Refer to `docs/10-security.md` for the full security specification.
 
 Testing should cover both individual components and complete user workflows.
 
-### Recommended Checks
+### Commands
 
-Run only commands that exist in the relevant package's scripts.
-
-Typical checks include:
+Backend:
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
+cd backend
+npm run typecheck   # tsc for src and tests
+npm test            # Vitest integration tests against portfolio_test
 npm run build
 ```
 
-Formatting checks may also be available, for example:
+Frontend:
 
 ```bash
-npm run format:check
+cd frontend
+npm run lint        # oxlint
+npm test            # Vitest + React Testing Library
+npm run build       # tsc -b && vite build
+npm run verify      # Playwright: verify-homepage + verify-admin
 ```
 
-Verify actual script names before running these commands.
+`npm run verify` needs a built bundle (`npm run build`), the API on port 4000, and Vite on port 5173, with a seeded administrator (`ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env`). It starts `vite preview` on port 4173 itself. There is no formatter script in either package.
 
 ### Important Test Areas
 
@@ -495,7 +458,7 @@ Verify actual script names before running these commands.
 - Accessibility and responsive behaviour.
 - SEO metadata and public content visibility.
 - End-to-end workflows.
-- Performance and security checks.
+- Security boundaries: CSRF, authorization, upload validation, and session revocation.
 
 A successful build alone does not prove that authentication, publication rules, database integrity, or deployment behaviour are correct.
 
@@ -561,7 +524,7 @@ The `docs/` directory contains the project's design, architecture, implementatio
 | `11-testing-and-qa.md` | Test strategy, quality gates, release checks, and defect handling |
 | `12-deployment-and-maintenance.md` | Deployment, monitoring, backups, recovery, and maintenance |
 | `13-admin-advanced-features.md` | Bulk actions, revision history, trash/recovery, scheduled publishing, administrator roles, audit logs, and sessions |
-| `14-dynamic-content-and-media-management.md` | Dynamic content delivery, publishing, uploads, storage, optimization, and caching |
+| `14-dynamic-content-and-media-management.md` | Dynamic content delivery, publishing, uploads, storage, and caching |
 
 The documentation is intended to guide implementation. Update it when architectural or behavioural decisions change, and distinguish planned features from verified functionality.
 
@@ -570,7 +533,7 @@ The documentation is intended to guide implementation. Update it when architectu
 - **Consistency:** Use shared design tokens and reusable components.
 - **Security:** Enforce sensitive rules on the server.
 - **Accessibility:** Support keyboard navigation, readable contrast, and reduced motion.
-- **Performance:** Optimize database access, network requests, and images.
+- **Performance:** Paginate and index database access, reserve image dimensions, and serve uploaded media from immutable URLs.
 - **Reliability:** Handle partial failures and provide clear recovery paths.
 - **Maintainability:** Keep responsibilities separated and code testable.
 - **Privacy:** Collect and retain only necessary personal data.

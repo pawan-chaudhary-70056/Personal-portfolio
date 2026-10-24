@@ -4,6 +4,7 @@ import type { AuditLogPage as AuditLogPageData } from '@/@types/admin'
 import { ApiError } from '@/api/client'
 import { listAuditLogs } from '@/api/admin.api'
 import { useSession } from '@/auth/useSession'
+import { LoginMonitoringPanel } from '@/components/admin/LoginMonitoringPanel'
 import { Pagination } from '@/components/admin/Pagination'
 import { EmptyState } from '@/components/feedback/EmptyState'
 import { ErrorState } from '@/components/feedback/ErrorState'
@@ -137,6 +138,8 @@ export function AdminAuditLogPage() {
           Manage sessions
         </Link>
       </header>
+
+      <LoginMonitoringPanel />
 
       <section aria-labelledby="audit-filters-heading" className="mt-8 border border-charcoal/15 p-4">
         <h2 id="audit-filters-heading" className="sr-only">

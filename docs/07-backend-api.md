@@ -241,6 +241,40 @@ Expired or invalid sessions must not authorize administrative actions.
 
 The frontend should clear private state and return the administrator to an appropriate authentication screen.
 
+### 6.5 Second-factor challenge
+
+`POST /api/v1/auth/mfa`
+
+Authentication: A pending challenge created by a password login on an account with MFA enabled. The session is not authenticated for any administrative route until this call succeeds.
+
+Request:
+
+```json
+{
+  "code": "123456"
+}
+```
+
+`code` accepts a six-digit authenticator code or one recovery code, with or without separators.
+
+Expected behavior:
+
+- Reject requests without a pending challenge, or after its 10-minute lifetime, with `401`.
+- Allow five incorrect codes per challenge; the fifth failure destroys the session.
+- Rate limit attempts independently of the login limiter.
+- Reject a TOTP step that has already been accepted, so a code cannot be replayed.
+- Mark a redemption recovery code as used; the same code then fails.
+- On success, regenerate the session identifier, set `loggedInAt`, update `lastLoginAt`, and return the same safe account payload as `POST /auth/login`.
+- Apply CSRF protection and write an `AUTH_MFA_FAILED` or `AUTH_LOGIN_SUCCEEDED` audit event with the method (`totp` or `recovery`).
+
+A login response for an MFA account is:
+
+```json
+{
+  "mfaRequired": true
+}
+```
+
 ## 7. Public Portfolio API
 
 Public endpoints must return only content approved for public display.
@@ -605,6 +639,10 @@ Audit access requires authorization. Filters and pagination must be validated.
 
 Audit records must not be editable through a general-purpose CRUD endpoint.
 
+`GET /api/v1/admin/login-monitoring`
+
+Owner-only failed-login monitoring over the same append-only trail. `days` (1–30, default 7) selects a rolling window ending now. The response carries totals for failed sign-ins, failed second-factor codes, and successful sign-ins; failed sign-ins grouped by source address (top 10 by count); and the 20 most recent failures with the attempted account, reason, source address, and user agent. Read-only with a fixed response shape: no raw audit metadata, passwords, tokens, or session identifiers, and no write operations.
+
 ### 13.5 Sessions
 
 Examples:
@@ -621,6 +659,18 @@ Analytics and operational status endpoints should only be implemented when the u
 System-health responses must not disclose secrets, internal network details, or unnecessary infrastructure information to unauthorized users.
 
 Backup and restore operations must not be exposed as unrestricted public API actions.
+
+### 13.7 Two-factor authentication
+
+These routes act on the signed-in administrator only; an editor can manage their own second factor but not anyone else's.
+
+- `GET /api/v1/admin/mfa` — status, enrolment date, pending setup flag, and the number of unused recovery codes.
+- `POST /api/v1/admin/mfa/setup` — generate a new secret and return it with an `otpauth://` URI, issuer, digit count, and period (30 seconds). Refused with `409` when MFA is already enabled.
+- `POST /api/v1/admin/mfa/enable` — confirm a six-digit code and return the ten recovery codes exactly once; revokes the account's other sessions.
+- `POST /api/v1/admin/mfa/disable` — requires `{ password, code }`, deletes the secret and unused recovery codes, revokes other sessions, and returns `204`.
+- `POST /api/v1/admin/mfa/recovery-codes` — requires `{ password, code }` and replaces every unused code.
+
+Secrets, recovery codes, and code values must never be logged or returned from any other endpoint. The TOTP secret is stored encrypted; only the setup and enrolment responses expose it.
 
 ## 14. Validation Rules
 
@@ -1028,12 +1078,15 @@ The homepage portrait uses a draft/publish workflow. Binary files are stored out
 | `GET` | `/api/admin/homepage` | Draft and published state, change indicator, upload limits |
 | `PATCH` | `/api/admin/homepage` | Update draft alt text, visibility, and effect settings |
 | `POST` | `/api/admin/homepage/portrait` | Upload or replace the draft portrait (multipart field `file`) |
+| `POST` | `/api/admin/homepage/portrait/library` | Reuse a media-library image as the draft portrait (`{ "mediaId": "..." }`) |
 | `DELETE` | `/api/admin/homepage/portrait` | Clear the draft portrait; published state is untouched |
 | `POST` | `/api/admin/homepage/publish` | Copy the draft state to the published state |
 | `GET` | `/api/admin/media/:id/file` | Stream a stored asset to a signed-in administrator |
 | `DELETE` | `/api/admin/media/:id` | Delete an unreferenced asset; 409 while referenced |
 
 `PATCH` accepts `portraitAlt`, `portraitVisible`, `effectEnabled`, `tiltIntensity`, `animationIntensity`, and `floatingEnabled` (intensities are integers from 0 to 100), plus the homepage layout fields documented in §27.1.
+
+`POST /portrait/library` selects an existing asset instead of uploading a copy. An unknown id returns `400 invalid_media` with `details[0].path === 'mediaId'`. The library description fills the draft alt text only while that field is empty. The previously selected draft asset is deleted when no draft or published reference remains; a still-published asset is always kept.
 
 ### 26.3 Upload validation
 
@@ -1122,7 +1175,7 @@ All routes require a signed-in administrator; writes also require the CSRF token
 - `search` (≤100 characters) matches the original filename or alt text, case-insensitively.
 - `page` ≥ 1; `pageSize` 1–50, default 20. Unknown parameters and out-of-range values return `400 validation_error`.
 - Ordered newest first. The response is `{ items, total, page, pageSize, pageCount }`, where each item is `{ id, url, originalFilename, mimeType, sizeBytes, width, height, altText, createdAt, updatedAt, referenced }`. `url` is the session-protected file route, not a public URL.
-- `referenced` is `true` when the homepage draft or published portrait uses the asset, which is exactly the condition that blocks deletion.
+- `referenced` is `true` when the homepage draft or published portrait, a project cover, a gallery screenshot, or the profile portrait uses the asset, which is exactly the condition that blocks deletion.
 
 ### 28.2 Upload
 
@@ -1219,7 +1272,39 @@ Every admin route requires a signed-in administrator. Owner-only routes addition
 - The API process runs a scheduler every 30 seconds. `publishDueContent` claims each due row with a conditional update, so concurrent instances publish a record once, clear `publishAt`, and write a single `scheduled` audit event and revision.
 - `GET /api/admin/scheduling` returns `{ items: [{ type, id, title, subtitle, publishAt }] }`; each collection contributes at most 50 rows.
 
-## 31. Related Documentation
+## 31. Project Cover, Gallery, and Profile Portrait Media (Implemented)
+
+Projects and the profile can now point at an image in the media library instead of an external URL. The database stores a foreign key; the API exposes a stable public image URL, so public clients never handle asset references.
+
+### 31.1 Fields
+
+- `Project.coverMediaId` — optional reference to `MediaAsset`. `imageUrl` stays for externally hosted images. Sending both in one request returns `400 validation_error` with `details[0].path === 'coverMediaId'`.
+- `ProjectScreenshot.mediaId` — optional reference for one gallery row. `ProjectScreenshot.url` remains the external alternative, and each row accepts exactly one of the two; sending both (or neither) returns `400 validation_error` with `details[0].path === 'screenshots.<index>.mediaId'`.
+- `Profile.portraitMediaId` — the equivalent for the singleton profile; `portraitUrl` remains the external alternative. Sending both returns `400 validation_error` with `details[0].path === 'portraitUrl'`.
+- Saving one source clears the other, so a record always has at most one portrait or cover source. A `portraitAlt` (or `imageAlt`) is still required, and is never inferred by the server.
+- An id that no longer exists returns `400 invalid_media` with the offending field in `details`.
+
+### 31.2 Public endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/media/project-cover/:id` | Streams the cover of a published project |
+| `GET` | `/api/media/project-screenshot/:id` | Streams a gallery image of a published project |
+| `GET` | `/api/media/profile-portrait/:id` | Streams the profile portrait |
+
+All three return `404` when the asset is not attached to public content: a draft project's cover or gallery stays private until the project is published. Bytes are immutable per id, so responses carry `Cache-Control: public, max-age=31536000, immutable`.
+
+Public project and profile responses are unchanged in shape: `GET /api/projects`, `GET /api/projects/:slug`, and `GET /api/profile` return the resolved `/api/media/...` URL in `imageUrl`, `screenshots[].url`, or `portraitUrl`. `coverMediaId`, `screenshots[].mediaId`, and `portraitMediaId` never appear in a public response.
+
+### 31.3 Deletion rules
+
+`DELETE /api/admin/media/:id` returns `409` while the asset is referenced by the homepage draft or published portrait, any project cover, any gallery screenshot (including drafts and trashed records), or the profile. The media listing's `referenced` flag uses the same rule. Replacing a project's gallery deletes the old screenshot rows, which releases their assets.
+
+### 31.4 Revision snapshots
+
+Project snapshots include `coverMediaId`, so restoring an earlier revision restores the cover reference as well as the external URL state. The profile is not revisioned.
+
+## 32. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

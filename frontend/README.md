@@ -131,6 +131,6 @@ src/
 ## Not implemented yet
 
 - Admin modules for site settings and the media library.
-- A general media library, plus uploads for project covers, gallery screenshots, and the profile portrait (those still accept validated `http(s)` URLs; only the homepage hero portrait is uploaded today).
+- A general media library, with uploads and library selection for project covers, gallery screenshots, the profile portrait, and the homepage hero portrait (the image forms still accept a validated `http(s)` URL as the alternative source).
 - Email notifications for new contact messages; submissions are stored in the inbox only.
 - Pre-rendering of public routes for reliable link previews (`docs/06-frontend-architecture.md` §15).

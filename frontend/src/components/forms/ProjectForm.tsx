@@ -2,6 +2,9 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { AdminProject, AdminProjectCategory, ProjectPayload } from '@/@types/admin'
 import { listProjectCategories } from '@/api/categories.api'
+import { ApiError } from '@/api/client'
+import { uploadMedia } from '@/api/media.api'
+import { MediaPicker } from '@/components/admin/MediaPicker'
 import { InlineAlert } from '@/components/feedback/InlineAlert'
 import { FormField } from '@/components/forms/FormField'
 import { useApiResource } from '@/hooks/useApiResource'
@@ -11,7 +14,13 @@ import {
   selectClassName,
   textareaClassName,
 } from '@/components/ui/fieldStyles'
-import { toFormValues, toProjectPayload, type ProjectFormValues, type ScreenshotFormValues } from '@/utils/projectPayload'
+import {
+  emptyScreenshotRow,
+  toFormValues,
+  toProjectPayload,
+  type ProjectFormValues,
+  type ScreenshotFormValues,
+} from '@/utils/projectPayload'
 
 interface ProjectFormProps {
   project?: AdminProject
@@ -34,6 +43,13 @@ export function ProjectForm({
 }: ProjectFormProps) {
   const [values, setValues] = useState<ProjectFormValues>(() => toFormValues(project))
   const [localError, setLocalError] = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // One dialog serves the cover and every gallery row; the index says which.
+  const [screenshotPicker, setScreenshotPicker] = useState<number | null>(null)
+  const [uploadingScreenshot, setUploadingScreenshot] = useState<number | null>(null)
+  const [draggingScreenshot, setDraggingScreenshot] = useState<number | null>(null)
+  const [dragOverScreenshot, setDragOverScreenshot] = useState<number | null>(null)
+  const [reorderMessage, setReorderMessage] = useState('')
 
   // Categories are managed separately; the select keeps projects inside the
   // managed list while still showing a current value that was renamed.
@@ -59,18 +75,23 @@ export function ProjectForm({
     // guess. Fail early with a message and the offending field focused.
     const firstIncomplete = values.screenshots.findIndex((screenshot) => {
       const hasContent = Boolean(
-        screenshot.url.trim() || screenshot.alt.trim() || screenshot.caption.trim(),
+        screenshot.url.trim() ||
+          screenshot.mediaId.trim() ||
+          screenshot.alt.trim() ||
+          screenshot.caption.trim(),
       )
-      return hasContent && (!screenshot.url.trim() || !screenshot.alt.trim())
+      const hasImage = Boolean(screenshot.url.trim() || screenshot.mediaId.trim())
+      return hasContent && (!hasImage || !screenshot.alt.trim())
     })
 
     if (firstIncomplete >= 0) {
       const screenshot = values.screenshots[firstIncomplete]
+      const hasImage = Boolean(screenshot.url.trim() || screenshot.mediaId.trim())
       setLocalError(
-        'Each screenshot needs an image URL and alt text. Remove any row you do not need.',
+        'Each screenshot needs an image and alt text. Remove any row you do not need.',
       )
       document
-        .getElementById(`screenshot-${firstIncomplete}-${screenshot.url.trim() ? 'alt' : 'url'}`)
+        .getElementById(`screenshot-${firstIncomplete}-${hasImage ? 'alt' : 'url'}`)
         ?.focus()
       return
     }
@@ -82,7 +103,7 @@ export function ProjectForm({
     setLocalError(null)
     setValues((current) => ({
       ...current,
-      screenshots: [...current.screenshots, { url: '', alt: '', caption: '' }],
+      screenshots: [...current.screenshots, emptyScreenshotRow()],
     }))
   }
 
@@ -94,6 +115,36 @@ export function ProjectForm({
     }))
   }
 
+  /**
+   * Reorders the gallery in place. List order is the saved display order, so
+   * nothing else changes when a row moves.
+   */
+  function moveScreenshot(from: number, to: number) {
+    const count = values.screenshots.length
+
+    if (from === to || from < 0 || to < 0 || from >= count || to >= count) {
+      return
+    }
+
+    setValues((current) => {
+      const screenshots = [...current.screenshots]
+      const [moved] = screenshots.splice(from, 1)
+
+      if (!moved) {
+        return current
+      }
+
+      screenshots.splice(to, 0, moved)
+      return { ...current, screenshots }
+    })
+    setReorderMessage(`Screenshot ${from + 1} moved to position ${to + 1}.`)
+  }
+
+  function endScreenshotDrag() {
+    setDraggingScreenshot(null)
+    setDragOverScreenshot(null)
+  }
+
   function updateScreenshot(index: number, key: keyof ScreenshotFormValues, value: string) {
     setLocalError(null)
     setValues((current) => ({
@@ -102,6 +153,42 @@ export function ProjectForm({
         position === index ? { ...screenshot, [key]: value } : screenshot,
       ),
     }))
+  }
+
+  function pickScreenshotImage(index: number, mediaId: string, altText: string | null) {
+    setLocalError(null)
+    setValues((current) => ({
+      ...current,
+      screenshots: current.screenshots.map((screenshot, position) =>
+        position === index
+          ? {
+              ...screenshot,
+              mediaId,
+              // The two sources are mutually exclusive.
+              url: '',
+              alt: screenshot.alt.trim() || altText || '',
+            }
+          : screenshot,
+      ),
+    }))
+  }
+
+  async function uploadScreenshot(index: number, file: File) {
+    setLocalError(null)
+    setUploadingScreenshot(index)
+
+    try {
+      const asset = await uploadMedia(file)
+      pickScreenshotImage(index, asset.id, asset.altText)
+    } catch (caught) {
+      setLocalError(
+        caught instanceof ApiError
+          ? caught.message
+          : 'The image could not be uploaded. Check your connection and try again.',
+      )
+    } finally {
+      setUploadingScreenshot(null)
+    }
   }
 
   const invalid = (field: string) => (fieldErrors[field] ? true : undefined)
@@ -288,14 +375,18 @@ export function ProjectForm({
           <FormField
             id="imageUrl"
             label="Cover image URL"
-            hint="Optional. Uploads are not enabled yet."
+            hint="Optional. Use an uploaded image below, or link a hosted one."
             error={fieldErrors.imageUrl}
           >
             <input
               id="imageUrl"
               type="url"
               value={values.imageUrl}
-              onChange={(event) => update('imageUrl', event.target.value)}
+              onChange={(event) => {
+                update('imageUrl', event.target.value)
+                // A typed URL replaces a previously picked library image.
+                if (event.target.value.trim()) update('coverMediaId', '')
+              }}
               aria-invalid={invalid('imageUrl')}
               aria-describedby={describedBy('imageUrl')}
               className={inputClassName}
@@ -317,6 +408,63 @@ export function ProjectForm({
             />
           </FormField>
         </div>
+
+        <div className="border border-charcoal/15 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
+                Uploaded cover
+              </p>
+              <p className="mt-1 text-body-sm text-charcoal/70">
+                {values.coverMediaId
+                  ? 'This project uses an image from the media library.'
+                  : 'No library image selected. Choose one instead of hosting a URL.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+              >
+                {values.coverMediaId ? 'Change image' : 'Choose from library'}
+              </button>
+              {values.coverMediaId ? (
+                <button
+                  type="button"
+                  onClick={() => update('coverMediaId', '')}
+                  className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {values.coverMediaId ? (
+            <img
+              src={`/api/admin/media/${values.coverMediaId}/file`}
+              alt=""
+              className="mt-4 aspect-video w-full max-w-xs border border-charcoal/10 bg-charcoal/5 object-contain"
+            />
+          ) : null}
+        </div>
+
+        <MediaPicker
+          open={pickerOpen}
+          selectedId={values.coverMediaId || null}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(asset) => {
+            update('coverMediaId', asset.id)
+            update('imageUrl', '')
+            // Reuse the library description so the cover is never published
+            // without alt text.
+            if (!values.imageAlt.trim() && asset.altText) {
+              update('imageAlt', asset.altText)
+            }
+          }}
+        />
       </fieldset>
 
       <fieldset className="space-y-6 border-t border-charcoal/15 pt-8">
@@ -326,7 +474,12 @@ export function ProjectForm({
 
         <p className="text-caption text-muted-light">
           Optional. Up to 8 images shown on the project page in list order. Each screenshot needs an
-          image URL and alt text.
+          image — uploaded here, picked from the media library, or linked by URL — and alt text.
+          Drag a row by its handle, or use the arrow buttons, to change the display order.
+        </p>
+
+        <p role="status" className="sr-only">
+          {reorderMessage}
         </p>
 
         {values.screenshots.length === 0 ? (
@@ -334,34 +487,107 @@ export function ProjectForm({
         ) : null}
 
         {values.screenshots.map((screenshot, index) => (
-          <div key={index} className="border border-charcoal/15 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
-                Screenshot {index + 1}
-              </p>
-              <button
-                type="button"
-                onClick={() => removeScreenshot(index)}
-                aria-label={`Remove screenshot ${index + 1}`}
-                className="text-caption text-error underline underline-offset-4"
-              >
-                Remove
-              </button>
+          <div
+            key={screenshot.key ?? index}
+            onDragOver={(event) => {
+              // Allowing the drop is what makes this row a valid target. The
+              // state flag only drives the highlight; the drop itself reads the
+              // source index from the drag data so it never depends on a render.
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              if (dragOverScreenshot !== index) setDragOverScreenshot(index)
+            }}
+            onDragLeave={() =>
+              setDragOverScreenshot((current) => (current === index ? null : current))
+            }
+            onDrop={(event) => {
+              event.preventDefault()
+              const from = Number(event.dataTransfer.getData('text/plain'))
+
+              if (Number.isInteger(from)) {
+                moveScreenshot(from, index)
+              }
+
+              endScreenshotDrag()
+            }}
+            className={`border p-4 transition-colors duration-150 ease-standard ${
+              dragOverScreenshot === index
+                ? 'border-gold bg-gold/5'
+                : 'border-charcoal/15'
+            } ${draggingScreenshot === index ? 'opacity-60' : ''}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', String(index))
+                    setDraggingScreenshot(index)
+                  }}
+                  onDragEnd={endScreenshotDrag}
+                  aria-hidden="true"
+                  title="Drag to reorder"
+                  className="cursor-grab rounded border border-charcoal/20 px-2 py-1 text-caption text-charcoal/60 select-none active:cursor-grabbing"
+                >
+                  ⠿
+                </span>
+                <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
+                  Screenshot {index + 1}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => moveScreenshot(index, index - 1)}
+                  disabled={index === 0}
+                  aria-label={`Move screenshot ${index + 1} up`}
+                  className="min-h-11 border border-charcoal/30 px-3 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60 disabled:opacity-40"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveScreenshot(index, index + 1)}
+                  disabled={index === values.screenshots.length - 1}
+                  aria-label={`Move screenshot ${index + 1} down`}
+                  className="min-h-11 border border-charcoal/30 px-3 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60 disabled:opacity-40"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeScreenshot(index)}
+                  aria-label={`Remove screenshot ${index + 1}`}
+                  className="text-caption text-error underline underline-offset-4"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 grid gap-6 lg:grid-cols-2">
               <FormField
                 id={`screenshot-${index}-url`}
                 label="Image URL"
-                required
-                hint="Starts with http:// or https://."
+                hint={
+                  screenshot.mediaId
+                    ? 'A library image is selected. Remove it to use a URL instead.'
+                    : 'Starts with http:// or https://. Or use the library below.'
+                }
               >
                 <input
                   id={`screenshot-${index}-url`}
                   type="url"
                   value={screenshot.url}
-                  onChange={(event) => updateScreenshot(index, 'url', event.target.value)}
-                  className={inputClassName}
+                  disabled={Boolean(screenshot.mediaId)}
+                  onChange={(event) => {
+                    updateScreenshot(index, 'url', event.target.value)
+                    // A typed URL replaces a previously picked library image.
+                    if (event.target.value.trim()) updateScreenshot(index, 'mediaId', '')
+                  }}
+                  className={`${inputClassName} disabled:opacity-60`}
                 />
               </FormField>
 
@@ -393,8 +619,93 @@ export function ProjectForm({
                 />
               </FormField>
             </div>
+
+            <div className="mt-4 border border-charcoal/15 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-caption tracking-[0.14em] text-muted-light uppercase">
+                    Library image
+                  </p>
+                  <p className="mt-1 text-body-sm text-charcoal/70">
+                    {screenshot.mediaId
+                      ? 'This screenshot uses an image from the media library.'
+                      : 'No library image selected. Pick an existing one or upload a new image.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotPicker(index)}
+                    className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+                  >
+                    {screenshot.mediaId ? 'Change image' : 'Choose from library'}
+                  </button>
+                  {screenshot.mediaId ? (
+                    <button
+                      type="button"
+                      onClick={() => updateScreenshot(index, 'mediaId', '')}
+                      aria-label={`Remove library image from screenshot ${index + 1}`}
+                      className="min-h-11 border border-charcoal/30 px-4 text-body-sm text-charcoal transition-colors duration-150 ease-standard hover:border-charcoal/60"
+                    >
+                      Remove image
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {screenshot.mediaId ? (
+                <img
+                  src={`/api/admin/media/${screenshot.mediaId}/file`}
+                  alt=""
+                  className="mt-4 aspect-video w-full max-w-xs border border-charcoal/10 bg-charcoal/5 object-contain"
+                />
+              ) : null}
+
+              <div className="mt-4">
+                <label
+                  htmlFor={`screenshot-${index}-upload`}
+                  className="block text-caption tracking-[0.14em] text-muted-light uppercase"
+                >
+                  Upload an image
+                </label>
+                <input
+                  id={`screenshot-${index}-upload`}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={uploadingScreenshot === index}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    // Reset so choosing the same file again still triggers a change.
+                    event.target.value = ''
+                    if (file) void uploadScreenshot(index, file)
+                  }}
+                  className="mt-2 block w-full max-w-sm text-caption"
+                />
+                {uploadingScreenshot === index ? (
+                  <p role="status" className="mt-1 text-caption text-muted-light">
+                    Uploading…
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
         ))}
+
+        <MediaPicker
+          open={screenshotPicker !== null}
+          selectedId={
+            screenshotPicker !== null
+              ? values.screenshots[screenshotPicker]?.mediaId || null
+              : null
+          }
+          onClose={() => setScreenshotPicker(null)}
+          onSelect={(asset) => {
+            if (screenshotPicker !== null) {
+              pickScreenshotImage(screenshotPicker, asset.id, asset.altText)
+            }
+          }}
+        />
 
         <button
           type="button"
