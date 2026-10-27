@@ -791,11 +791,21 @@ The actual CI configuration is the source of truth for which checks currently ru
 | Backend | `npm ci` → `prisma generate` → `tsc --noEmit` (source and tests) → `vitest run` → `tsc` build |
 | Frontend | `npm ci` → `oxlint` → `vitest run` (unit tests) → `tsc -b && vite build` |
 | End-to-end | PostgreSQL service → migrations → `create-admin` → API and dev server → `npm run build` → `npm run verify` (both Playwright verifiers) |
-| Containers | `docker build` for `backend/` and `frontend/` |
+| Containers | `docker build` for `backend/`, `frontend/`, and the single-container Render image (`Dockerfile.render`) |
 
 The backend job starts a `postgres:18-alpine` service on port `5433` with the credentials in `backend/tests/config.ts`, so the API suite runs against the same isolated database a developer would use. `tests/global-setup.ts` applies the committed migrations; the suite truncates tables between cases and uses `tests/.tmp-media` for uploads.
 
-The end-to-end job provisions its own stack: `prisma migrate deploy` plus `npm run create-admin` against a second PostgreSQL service, the API on port 4000, Vite on port 5173, and Chromium installed through `npx playwright install --with-deps chromium`. `npm run verify` builds the SPA, runs `verify:homepage` against `vite preview`, then `verify:admin`, and fails the job if either does. Both verifiers are non-destructive, so the CI database is left as it was found. No formatting check is configured; lint, type checking, and the test suites are the enforced gates.
+The end-to-end job provisions its own stack: `prisma migrate deploy` plus `npm run create-admin` against a second PostgreSQL service, the API on port 4000, Vite on port 5173, and Chromium installed through `npx playwright install --with-deps chromium`. `npm run verify` builds the SPA, starts `vite preview` bound to `127.0.0.1` when it is not already running, runs `verify:homepage` against that build, then `verify:admin`, and fails the job if either does. Both verifiers are non-destructive, so the CI database is left as it was found. No formatting check is configured; lint, type checking, and the test suites are the enforced gates.
+
+The runner resolves `localhost` to `::1` before `127.0.0.1`, so every server the pipeline starts binds the IPv4 loopback explicitly: the dev server through `--host 127.0.0.1 --port 5173 --strictPort` in the workflow, and the preview server through the same flags in `frontend/scripts/verify-all.mjs`. A server that binds only `::1` looks healthy to itself while `curl http://127.0.0.1:<port>/` and Playwright both fail, which is what made earlier e2e runs die at startup.
+
+The verifiers run against a freshly migrated database with an owner account and no portfolio content, so their content-dependent checks are exercised in the empty state as well as with published content. `verify-homepage` derives its expectations from the public API (`/api/profile`, `/api/projects`, `/api/portfolio/homepage`, and the rest) and asserts the empty-state rendering where a component only renders with published content — for example the hero's gold primary call to action, which `Hero.tsx` shows only when a profile and at least one project are published.
+
+### 24.2 Verified runs
+
+The pipeline has run green on `main`: run `40449204559` on commit `b7af3f8` completed all four jobs successfully — backend (`prisma generate`, typecheck, 15 test files, production build), frontend (`oxlint`, 10 unit test files, `tsc -b && vite build`), the end-to-end verifiers (65/65 homepage checks and 249/249 admin checks, both passing), and all three container images.
+
+The two verifier failures that preceded it were both in this pipeline rather than in the application: the preview server started without binding the IPv4 loopback, and the homepage verifier asserted the hero CTA without allowing for an empty database. Commit `ae346cb` binds the preview server, and commit `b7af3f8` makes the CTA expectation follow the published content.
 
 ## 25. Defect Management
 
@@ -991,7 +1001,20 @@ Two-factor authentication has no Playwright verifier step yet; the flow was exer
 
 End-to-end coverage in `frontend/scripts/verify-admin.mjs` opens the activity log, waits for the `login-monitoring` response, confirms the totals render and count the failed sign-in recorded earlier in the same run, checks the failed sign-in is named with its account and reason, and confirms failures are grouped by source address.
 
-## 35. Related Documentation
+## 35. Readiness and Monitoring Coverage (Implemented)
+
+`backend/tests/readiness.test.ts` covers the public readiness probe against the real database and media directory:
+
+- `GET /api/ready` returns `200` with `{ status: 'ok', checks: { database: true, storage: true } }` when the database answers and the media directory is writable.
+- A failing database query returns `503` with `status: 'error'` and `database: false`, and the serialized body contains no host, address, or error text — the probe is public, so it must not leak internals.
+- The media directory made read-only returns `200` with `status: 'degraded'` and `storage: false`, so a full or read-only volume raises an alert instead of removing a serving instance from rotation.
+- `GET /api/health` keeps answering `200 { status: 'ok' }` while the database is failing, which is the liveness/readiness split §17 of `docs/12-deployment-and-maintenance.md` relies on.
+
+The degraded case needs the media directory's permissions changed, which root ignores, so the test is skipped when the suite runs as root (for example inside a container). The live behaviour was also exercised against a running API: `/api/ready` answered `200` with the database up, `503` after the database container was stopped (`/api/health` stayed `200`), and `200` again within a couple of seconds of the database returning.
+
+The CI workflow does not probe `/api/ready` yet: the readiness suite runs in the backend job, and alerting is configured where the service is hosted (`docs/12-deployment-and-maintenance.md` §17.2).
+
+## 36. Related Documentation
 
 - `README.md` — Project setup and overview.
 - `docs/01-project-overview.md` — Product scope.

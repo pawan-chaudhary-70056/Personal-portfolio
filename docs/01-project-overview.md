@@ -442,7 +442,7 @@ Animations must remain smooth and restrained. The application must respect `pref
 | Local development | Docker Compose for PostgreSQL; npm scripts for the API and SPA |
 | CI | GitHub Actions: backend typecheck/tests/build, frontend lint/tests/build, both verifiers, and container image builds |
 | Media storage | Local disk under `MEDIA_ROOT`, behind a provider-neutral `store/read/remove` interface |
-| Monitoring | `/api/health`, the owner-only health panel, and console error logging |
+| Monitoring | `/api/health` (liveness), `/api/ready` (dependency-checked readiness for uptime monitors and alerting), the owner-only health panel, and console error logging |
 
 Versions are pinned in the two `package.json` files and their lockfiles; the CI workflow fixes the Node.js version at 24. There is no server-side content cache and no CodeQL or DAST job in CI, so these are not claimed here.
 

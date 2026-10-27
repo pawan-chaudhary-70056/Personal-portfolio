@@ -18,6 +18,7 @@ import { createPublicContentRouter } from './routes/public/content.routes.js'
 import { createPublicHeroRouter } from './routes/public/hero.routes.js'
 import { createPublicHomepageRouter } from './routes/public/homepage.routes.js'
 import { createPublicMediaRouter } from './routes/public/media.routes.js'
+import { getReadiness } from './services/readiness.service.js'
 import { createPublicProjectsRouter } from './routes/public/projects.routes.js'
 
 export interface CreateAppOptions {
@@ -76,6 +77,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok' })
+  })
+
+  // Liveness answers whether the process is up; readiness answers whether it
+  // can serve, so platform health checks and uptime monitors can alert on a
+  // failed dependency instead of a healthy-looking process
+  // (docs/12-deployment-and-maintenance.md §17).
+  app.get('/api/ready', async (_req, res) => {
+    const report = await getReadiness()
+    res.status(report.status === 'error' ? 503 : 200).json(report)
   })
 
   // Applies to every state-changing request under /api.

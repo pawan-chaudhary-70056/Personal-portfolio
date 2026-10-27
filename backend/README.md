@@ -73,6 +73,7 @@ Uploaded portraits are written to `MEDIA_ROOT` (default `backend/storage/media`,
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | `GET` | `/api/health` | Public | Liveness check |
+| `GET` | `/api/ready` | Public | Readiness check: `503` when the database is unreachable, `degraded` when media storage is not writable |
 | `GET` | `/api/hero` | Public | Published hero portrait and effect settings (never draft values) |
 | `GET` | `/api/media/hero-portrait/:id` | Public | Streams the published portrait; other ids return 404 |
 | `GET` | `/api/media/project-cover/:id` | Public | Streams the cover of a published project |

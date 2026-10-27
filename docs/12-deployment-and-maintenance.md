@@ -294,6 +294,7 @@ First deployment:
 After the first deploy:
 
 - Every push to `main` redeploys automatically (Render's default `commit` trigger).
+- Confirm the readiness probe from outside Render (`curl -sS -o /dev/null -w '%{http_code}\n' https://<host>/api/ready`) and point the uptime monitor and alert channel at it (§17.2). The platform health check stays on `/api/health`.
 - Rollback: restore a previous deploy from the Render dashboard, or revert the commit. Database rollback follows §9.4.
 
 Free-plan limitations, deliberate and documented:
@@ -511,7 +512,7 @@ Not every pipeline stage must run on every commit, but mandatory release gates m
 - Deploy the intended backend and frontend versions.
 - Apply configuration changes.
 - Confirm services start successfully.
-- Verify health checks.
+- Verify liveness (`/api/health`) and readiness (`/api/ready`).
 
 ### Step 5 — Smoke test
 
@@ -562,6 +563,41 @@ Health endpoints should disclose only the minimum information needed for the int
 Use separate readiness and liveness checks when the deployment platform benefits from that distinction.
 
 Monitoring thresholds must be based on expected workload and actual infrastructure rather than invented performance guarantees.
+
+### 17.1 Implemented probes
+
+| Endpoint | Consumer | Reports |
+| --- | --- | --- |
+| `GET /api/health` | Platform liveness | `200 {"status":"ok"}`. Answers whether the process is up and checks no dependencies. |
+| `GET /api/ready` | Readiness, uptime monitors, alerting | `200 {"status":"ok","checks":{"database":true,"storage":true}}` when it can serve; `200` with `"degraded"` when the media volume is not writable; `503` with `"error"` when the database does not answer. |
+
+`backend/src/services/readiness.service.ts` implements the probe and `backend/src/routes/admin/index.ts` keeps the operator-facing detail in the owner-only health panel (`GET /api/admin/health`), which reports the database round trip, the session table, the media directory, and unfinished migrations.
+
+The database gates readiness because no route can serve without it. Media storage is reported but does not gate: a full or read-only volume degrades uploads without taking the public site down, so the probe answers `200` and an alert watches the `degraded` status. Both probes are public and disclose two booleans — no hosts, paths, versions, timings, or error text.
+
+The Render blueprint keeps the platform health check on `/api/health` and lets an external monitor watch `/api/ready`. Either way works once the database is reachable before the service starts, which the start command already guarantees (`prisma migrate deploy` runs first). Keeping the platform check on liveness is the safer default for a single instance: a readiness failure then raises an alert instead of a restart loop that cannot fix the dependency.
+
+### 17.2 Alerting
+
+Alerting is configured in the hosting platform and the monitoring service, not in this application: the application exposes the probes and the audit trail and holds no notification credentials. Reachability is confirmed per environment with, for example, `curl -sS -o /dev/null -w '%{http_code}\n' https://<host>/api/ready`.
+
+Wire these before the site is announced:
+
+| Signal | Source | Why it matters |
+| --- | --- | --- |
+| API unreachable | Uptime monitor on `/api/ready`, from at least two regions | The site is down for visitors. |
+| Database unreachable | `/api/ready` returning `503` | Every route fails; uploads, sessions, and the admin area are unavailable. |
+| Media volume not writable or full | `/api/ready` returning `200` with `"degraded"` | Uploads silently fail while pages still render; disk usage on the host is the usual cause. |
+| Failed deploys | Platform notifications (Render → Settings → Notifications) | A release did not reach production. |
+| Repeated restarts | Platform service events | The container is crash-looping. |
+| Unexpected 5xx responses | Platform logs, or a log drain to an alerting service | An application defect is failing requests; the log entry carries the stack, not the request body. |
+| Repeated sign-in failures | Owner dashboard → sign-in monitoring (`GET /api/admin/login-monitoring`) | A credential-stuffing attempt against the admin area. |
+| TLS certificate expiry | Platform edge (Render manages certificates) | Visitors reach an insecure site. |
+| Database and disk size | Platform metrics | The plan limit is the next outage. |
+
+Set the actual thresholds from the workload observed in the first weeks of operation rather than from assumed traffic. Deliver alerts to a channel the operator actually reads, and restrict monitoring dashboards and alert channels to the accounts that need them.
+
+A readiness failure that outlives a restart points at the dependency, not the API: check the database service first, then the media volume, then the deploy history. The owner-only health panel is the fastest way to see which dependency is unhealthy without shell access.
 
 ## 18. Logging and Audit Operations
 
@@ -938,6 +974,8 @@ Operational requirements:
 | `frontend/Dockerfile` | Builds the SPA with `npm run build` and serves `dist` from `nginx:1.29-alpine`. |
 | `frontend/nginx.conf` | Single-origin reverse proxy: `/api/` → `api:4000`, SPA history fallback, immutable asset caching, revalidated HTML, security headers, 9 MB request cap. |
 | `docker-compose.prod.yml` | `db` (PostgreSQL 18), `api`, `web`, plus named volumes for database data and uploaded media. |
+| `Dockerfile.render` | Single-container production image for the Render blueprint: the API and the built SPA in one image, so the site and `/api` share an origin. |
+| `render.yaml` | Render Blueprint: one web service on `Dockerfile.render`, one managed PostgreSQL database, and the environment variables wiring them together (§8.5). |
 | `.github/workflows/ci.yml` | Continuous integration; see `docs/11-testing-and-qa.md` §24.1. |
 
 ### 32.1 Running the stack
@@ -963,7 +1001,45 @@ POSTGRES_PASSWORD=... SESSION_SECRET=<at-least-32-characters> \
 - **Backend:** `npm ci`, `prisma generate`, `tsc` for source and tests, the full Vitest suite against a throwaway PostgreSQL 18 service on port 5433, then `tsc` build output.
 - **Frontend:** `npm ci`, `oxlint`, the Vitest unit-test suite, and the production build (`tsc -b && vite build`).
 - **End-to-end:** a second PostgreSQL service, migrations plus `create-admin`, the API and Vite dev server started in the background, then `npm run verify` — the production build, `verify:homepage` against `vite preview`, and `verify:admin`, with Chromium installed by Playwright. This job needs no external credentials because the verifiers are non-destructive and create their own fixtures.
-- **Containers:** both Dockerfiles must build.
+- **Containers:** all three images must build (`backend/`, `frontend/`, and the single-container `Dockerfile.render`).
+
+### 32.3 Production image smoke test
+
+The Render image can be verified locally against a throwaway database before any account is involved. The commands below were run against `Dockerfile.render` on commit `b7af3f8`; the results are the observed ones, not expectations:
+
+```bash
+# 1. Throwaway database, so nothing in the development data is touched.
+docker exec portfolio-db psql -U portfolio -d postgres -c 'CREATE DATABASE portfolio_prodcheck'
+
+# 2. The image CI builds, run the way render.yaml runs it.
+docker build --file Dockerfile.render --tag portfolio-render:local .
+docker run -d --name portfolio-prodcheck -p 4100:4100 \
+  -e NODE_ENV=production -e PORT=4100 \
+  -e DATABASE_URL='postgresql://portfolio:<password>@host.docker.internal:5433/portfolio_prodcheck?schema=public' \
+  -e SESSION_SECRET='<at-least-32-characters>' -e TRUST_PROXY=true \
+  -e MEDIA_ROOT=/app/backend/storage/media \
+  portfolio-render:local sh -c 'npx prisma migrate deploy && node dist/index.js'
+```
+
+Observed: migrations applied on start, then `API listening on http://localhost:4100 (production)`. Against that container:
+
+| Check | Result |
+| --- | --- |
+| `GET /api/ready` | `200 {"status":"ok","checks":{"database":true,"storage":true}}` |
+| `GET /api/health` | `200 {"status":"ok"}` |
+| `GET /` | `200 text/html` with the built shell and its hashed `/assets/` bundle |
+| `GET /about` | `200` with the same shell: client-side routes fall back to it |
+| `GET /assets/<hashed>.js` | `Cache-Control: public, max-age=31536000, immutable` |
+| `GET /api/profile` | `200 {"profile":null}` on the empty database |
+| `GET /api/does-not-exist` | `404 {"error":"not_found"}`, not the SPA shell |
+| `GET /api/admin/overview` without a session | `401 {"error":"unauthorized"}` |
+| Sign-in with `X-Forwarded-Proto: https` | `200` and `Set-Cookie: portfolio.sid=…; Path=/; HttpOnly; Secure; SameSite=Lax` |
+| The same session against `/api/admin/overview` and `/api/admin/health` | `200`, with database, session store, and media all `ok` |
+| Sign-in over plain HTTP with no forwarded scheme | no session cookie at all: express-session does not send a `Secure` cookie on an insecure connection |
+
+The last two rows are the reason TLS must terminate in front of the service: the application is deliberately unusable for administrative work over plain HTTP, and Render's edge supplies the `X-Forwarded-Proto: https` that `TRUST_PROXY=true` trusts.
+
+Clean up afterwards with `docker rm -f portfolio-prodcheck` and `docker exec portfolio-db psql -U portfolio -d postgres -c 'DROP DATABASE portfolio_prodcheck'`.
 
 ## 33. Related Documentation
 

@@ -476,7 +476,8 @@ Production deployment should follow a documented release process.
 - Confirm HTTPS and secure cookies.
 - Verify media storage access.
 - Check backups and recovery procedures.
-- Confirm health checks and operational logging.
+- Confirm health checks and operational logging (`/api/ready` answers `200` in the target environment).
+- Confirm the uptime monitor and alert channel are watching the readiness probe.
 
 ### After Deployment
 
@@ -502,6 +503,15 @@ PUBLIC_ORIGIN=https://example.com \
 ```
 
 The API applies committed migrations on start, and uploads plus database data live on named volumes (`portfolio-media`, `portfolio-db`) that must be backed up together. The web container publishes `WEB_PORT` (default `8080`); terminate TLS in front of it, because production sessions use `Secure` cookies and will not work over plain HTTP. Container, proxy, and CI details are in `docs/12-deployment-and-maintenance.md` §32; CI checks are in `docs/11-testing-and-qa.md` §24.1.
+
+### Monitoring and Alerting
+
+Two public probes back operational monitoring:
+
+- `GET /api/health` — liveness. Answers whether the process is up and checks no dependencies.
+- `GET /api/ready` — readiness. Answers `200` when the API can serve, `200` with `"degraded"` when media storage is not writable, and `503` when the database does not answer.
+
+Point an uptime monitor at `/api/ready` — the hosting platform's health check can stay on `/api/health` — and alert on `503`, on `degraded`, on failed deploys, and on sustained `5xx` responses. The owner-only health panel (`/admin/health`) reports the same dependencies with operator detail for triage. `render.yaml` deploys the whole stack as one Render Blueprint (single origin, `Dockerfile.render`). See `docs/12-deployment-and-maintenance.md` §8.5 and §17.
 
 See `docs/12-deployment-and-maintenance.md` for the detailed deployment and operations guide.
 

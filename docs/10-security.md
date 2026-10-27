@@ -594,6 +594,15 @@ Where operational monitoring is available:
 
 Do not expose detailed internal health information through a public endpoint.
 
+Two public probes implement that split, and a public readiness probe is the hook an uptime monitor and the hosting platform's alerts use:
+
+- `GET /api/health` answers liveness only (`200 {"status":"ok"}`) and reveals nothing about dependencies.
+- `GET /api/ready` answers readiness as a status plus two booleans (`database`, `storage`), and returns `503` when the database does not answer. It discloses no hosts, paths, database names, versions, timings, or error text, so a 503 cannot be used to fingerprint the deployment.
+
+Operator-facing detail stays behind authentication: `GET /api/admin/health` is owner-only and reports the database round trip, session table, media directory, and unfinished migrations for incident triage.
+
+Unexpected API errors are logged server-side with their stack and returned to the client as a generic `500` message (`backend/src/lib/errors.ts`); request bodies, credentials, and session cookies never reach the log. Notification credentials are deliberately held outside the application — alert delivery is configured in the hosting platform or the monitoring service that watches the probes.
+
 ## 17. Dependency and Supply-Chain Security
 
 Requirements:
