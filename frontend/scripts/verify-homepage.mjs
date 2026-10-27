@@ -225,17 +225,27 @@ const overflowDesktop = await page.evaluate(
 )
 check(overflowDesktop <= 0, `no horizontal overflow at 1440px (${overflowDesktop}px)`)
 
-// Contrast of the primary CTA: gold background with charcoal text.
+// Contrast of the primary CTA: gold background with charcoal text. The hero
+// only renders that button when a profile is published and there is work to
+// link to (see Hero.tsx), so the expectation follows whatever is published
+// rather than assuming the database has content.
 const ctaContrast = await page.evaluate(() => {
   const cta = document.querySelector('#top a[href="/projects"]')
   if (!cta) return null
   const style = getComputedStyle(cta)
   return { color: style.color, background: style.backgroundColor }
 })
-check(
-  ctaContrast?.color === 'rgb(17, 17, 16)' && ctaContrast?.background === 'rgb(198, 170, 120)',
-  `primary CTA uses charcoal-on-gold (${JSON.stringify(ctaContrast)})`,
-)
+if (publishedProfile && publishedProjects.length > 0) {
+  check(
+    ctaContrast?.color === 'rgb(17, 17, 16)' && ctaContrast?.background === 'rgb(198, 170, 120)',
+    `primary CTA uses charcoal-on-gold (${JSON.stringify(ctaContrast)})`,
+  )
+} else {
+  check(
+    ctaContrast === null,
+    `the hero omits the primary CTA when nothing is published (${JSON.stringify(ctaContrast)})`,
+  )
+}
 
 await page.screenshot({ path: 'scripts/homepage-desktop.png', fullPage: true })
 
